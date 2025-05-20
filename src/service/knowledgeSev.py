@@ -8,8 +8,8 @@ from typing import Union
 
 import redis.asyncio as aioredis  # 导入 aioredis
 from bson import ObjectId  # 用于验证 kb_id
-from fastapi import HTTPException, UploadFile  # 添加 HTTPException
-from langchain_chroma import Chroma  # 添加 Chroma 导入
+from fastapi import HTTPException, UploadFile
+from langchain_chroma import Chroma
 
 from src.config.Redis import get_redis_client  # 导入 get_redis_client
 from src.models.knowledgeBase import (
@@ -115,7 +115,6 @@ async def create_knowledge(knowledge_base_data, current_user) -> KnowledgeBaseMo
 async def process_uploaded_file(
     kb_id: str,
     file: UploadFile,
-    # is_reorder: bool,
 ) -> dict:
     """处理上传的文件，进行向量化并更新知识库记录和 Redis 缓存"""
 
@@ -160,7 +159,7 @@ async def process_uploaded_file(
                     logger.warning(
                         f"文件 (MD5: {file_md5}) 已存在于知识库 {kb_id}，跳过处理。"
                     )
-                    # 如果文件已存在，直接返回成功可能不妥，抛出 ValueError 更好
+                    # 如果文件已存在，抛出 ValueError
                     raise ValueError(
                         f"文件 '{file.filename}' (MD5: {file_md5}) 已存在于此知识库。"
                     )
@@ -244,11 +243,67 @@ async def process_uploaded_file(
 
 
 async def get_knowledge_list():
-    """获取所有知识库列表 (未来可以考虑从缓存获取)"""
-    # TODO: 添加缓存逻辑，例如尝试从 Redis 获取一个包含所有 KB ID 的列表，然后批量获取缓存？
-    # 目前保持简单，直接从 DB 获取
-    knowledge_list = await KnowledgeBaseModel.find_all().to_list()
-    return knowledge_list
+    """获取所有知识库列表，优先从 Redis 缓存读取。
+    如果缓存为空，则从 MongoDB 加载并更新缓存。
+    """
+    redis = get_redis_client()  # type: aioredis.Redis
+    knowledge_list_from_cache = []
+    cached_kb_keys_bytes = [
+        key async for key in redis.scan_iter(match=f"{KB_CACHE_PREFIX}*")
+    ]
+
+    if cached_kb_keys_bytes:
+        logger.debug(f"从 Redis 缓存中找到 {len(cached_kb_keys_bytes)} 个知识库键。")
+        # MGET expects a list of keys
+        cached_values = await redis.mget(cached_kb_keys_bytes)
+        for key_bytes, value_bytes in zip(cached_kb_keys_bytes, cached_values):
+            key_str = key_bytes  # Keys from Redis are already strings if decode_responses=True
+            if value_bytes:
+                try:
+                    # Values from Redis are also likely strings if decode_responses=True
+                    kb_data_str = value_bytes
+                    kb_data = json.loads(kb_data_str)
+                    # KnowledgeBaseModel will handle an 'id' field that is a string representation of ObjectId
+                    knowledge_list_from_cache.append(KnowledgeBaseModel(**kb_data))
+                except json.JSONDecodeError:
+                    logger.warning(
+                        f"无法解析 Redis 缓存中的知识库数据 (键: {key_str}). 跳过此条目。"
+                    )
+                except (
+                    Exception
+                ) as e:  # Catch Pydantic validation errors or other issues
+                    logger.warning(
+                        f"从 Redis 缓存数据创建 KnowledgeBaseModel 实例失败 (键: {key_str}): {e}. 跳过此条目。"
+                    )
+            else:
+                logger.warning(
+                    f"Redis 键 {key_str} 的值为空，可能已过期或在 scan 和 mget 之间被删除。"
+                )
+
+    # 如果成功从缓存加载了任何数据，则使用缓存数据
+    if knowledge_list_from_cache:
+        logger.info(
+            f"成功从 Redis 缓存加载了 {len(knowledge_list_from_cache)} 个知识库。"
+        )
+        return knowledge_list_from_cache
+
+    # Fallback: If cache is empty
+    logger.info("Redis 缓存为空，将从 MongoDB 加载知识库列表...")
+    db_knowledge_list = await KnowledgeBaseModel.find_all().to_list()
+    logger.info(f"从 MongoDB 加载了 {len(db_knowledge_list)} 个知识库。")
+
+    if db_knowledge_list:
+        # Update cache with the fresh data from DB
+        logger.info(
+            f"开始将 {len(db_knowledge_list)} 个知识库更新/添加到 Redis 缓存..."
+        )
+        for kb_doc in db_knowledge_list:
+            await _set_kb_cache(kb_doc)  # _set_kb_cache handles the actual redis.set
+        logger.info(
+            f"已成功将 {len(db_knowledge_list)} 个知识库更新/添加到 Redis 缓存。"
+        )
+
+    return db_knowledge_list
 
 
 async def delete_knowledge_base(kb_id: str) -> None:

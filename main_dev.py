@@ -7,15 +7,20 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.responses import RedirectResponse
 
-# 日志记录
+# 设置简单的日志记录
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()  # 加载 .env 基础配置
-logger.info("APP_ENV: .env.prod")
-load_dotenv(
-    dotenv_path=".env.prod", override=True
-)  # override=True 特定环境文件覆盖 .env
+# app_env = os.getenv("APP_ENV")
+# if app_env:
+#     dotenv_path = f".env.{app_env}"
+#     print(dotenv_path)
+#     load_dotenv(
+#         dotenv_path=dotenv_path, override=True
+#     )  # override=True 特定环境文件覆盖 .env
+load_dotenv(dotenv_path=".env.dev", override=True)
+logger.info("APP_ENV: .env.dev")
 
 # LANGCHAIN
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -139,38 +144,38 @@ async def redirect_to_docs():
 
 
 # 启动web服务 ----------------------------------------------------------
+import asyncio
 
-# # 如果启用 MCP
-# import sys
-# import asyncio
-
+# 如果启用 MCP
+import sys
 
 import uvicorn
 
-# # --- 自定义服务器类 解决Windows上 FastAPI/Asyncio 子进程 `NotImplementedError`
-# class ProactorServer(uvicorn.Server):
-#     def run(self, sockets=None):
-#         # 在服务器运行前设置事件循环策略 (仅 Windows)
-#         if sys.platform == "win32":
-#             print("Setting ProactorEventLoopPolicy for Uvicorn server on Windows.")
-#             asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-#         # 使用 asyncio.run 启动服务器的 serve 方法
-#         asyncio.run(self.serve(sockets=sockets))
+
+# --- 自定义服务器类 解决Windows上 FastAPI/Asyncio 子进程 `NotImplementedError`
+class ProactorServer(uvicorn.Server):
+    def run(self, sockets=None):
+        # 在服务器运行前设置事件循环策略 (仅 Windows)
+        if sys.platform == "win32":
+            print("Setting ProactorEventLoopPolicy for Uvicorn server on Windows.")
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        # 使用 asyncio.run 启动服务器的 serve 方法
+        asyncio.run(self.serve(sockets=sockets))
 
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))  # 默认端口设置为8080
     host = os.getenv("HOST", "127.0.0.1")  # 默认主机设置为127.0.0.1
-    uvicorn.run("main:app", host=host, port=port)
+    # uvicorn.run("main:app", host=host, port=port)
     # uvicorn.run("main:app", host=host, port=port, reload=True)
 
-    # # 如果启用 MCP
-    # # --- 修改服务器启动方式 ---
-    # print(f"Starting MCP Agent server with ProactorServer at http://{host}:{port}")
+    # 如果启用 MCP
+    # --- 修改服务器启动方式 ---
+    print(f"Starting MCP Agent server with ProactorServer at http://{host}:{port}")
 
-    # # 1. 创建 Uvicorn 配置，确保 reload=False
-    # config = uvicorn.Config(app="main:app", host=host, port=port, reload=False)
+    # 1. 创建 Uvicorn 配置，确保 reload=False
+    config = uvicorn.Config(app="main_dev:app", host=host, port=port, reload=False)
 
-    # # 2. 实例化自定义服务器
-    # server = ProactorServer(config=config)
-    # server.run()
+    # 2. 实例化自定义服务器
+    server = ProactorServer(config=config)
+    server.run()

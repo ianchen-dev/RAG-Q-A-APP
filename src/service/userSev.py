@@ -33,7 +33,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 async def user_login(userLogin: UserLogin):
     user = await User.find_one(User.username == userLogin.username)
-    print(user)
     if not user or not verify_password(userLogin.password, user.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -58,6 +57,7 @@ async def user_login(userLogin: UserLogin):
     }
 
 
+# Oauth2 验证
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,7 +65,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     payload = decode_token(token)
-    print(payload)
     if payload is None:
         raise credentials_exception
 

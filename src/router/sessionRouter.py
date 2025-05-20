@@ -29,7 +29,7 @@ async def delete_session(session_id: str):
     return await sessionSev.delete_session(session_id)
 
 
-# --- 新增的分页获取历史记录接口 ---
+# --- 分页获取历史记录接口 ---
 @SessionRouter.get("/{session_id}/history", summary="分页获取会话历史记录")
 async def get_session_history_endpoint(
     session_id: str, page: int = 1, page_size: int = 10

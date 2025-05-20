@@ -7,9 +7,9 @@ from langchain.retrievers import (
     ContextualCompressionRetriever,
     EnsembleRetriever,
 )
-from langchain.retrievers.document_compressors import CrossEncoderReranker
 from langchain_chroma import Chroma
-from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+
+# from langchain_community.cross_encoders import HuggingFaceCrossEncoder #discard
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.callbacks import Callbacks  # Callbacks for compressor
 from langchain_core.documents import (
@@ -25,7 +25,7 @@ from src.utils.remote_rerank import call_siliconflow_rerank
 logger = logging.getLogger(__name__)
 
 # 设置知识库 向量模型 重排序模型的路径
-DEFAULT_LOCAL_RERANK_MODEL = "src/utils/bge-reranker-large"  # 本地重排序模型路径
+# DEFAULT_LOCAL_RERANK_MODEL = "src/utils/bge-reranker-large"  # 本地重排序模型路径--discard
 DEFAULT_REMOTE_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"  # 默认远程模型
 chroma_dir = "chroma/"  # 向量数据库的路径
 
@@ -175,7 +175,7 @@ class Knowledge:
         # --- 重排序相关配置 ---
         use_reranker: bool = False,  # 是否启用重排序，替代旧的 reorder
         reranker_type: Literal["local", "remote"] = "remote",  # 重排序器类型
-        local_rerank_model_path: str = DEFAULT_LOCAL_RERANK_MODEL,  # 本地模型路径
+        # local_rerank_model_path: str = DEFAULT_LOCAL_RERANK_MODEL,  # 本地模型路径--discard
         remote_rerank_config: Optional[Dict[str, Any]] = None,  # 远程配置字典
         rerank_top_n: int = 3,  # 返回的文档数量
     ):
@@ -191,7 +191,7 @@ class Knowledge:
         # --- 存储重排序配置 ---
         self.use_reranker = use_reranker
         self.reranker_type = reranker_type
-        self.local_rerank_model_path = local_rerank_model_path
+        # self.local_rerank_model_path = local_rerank_model_path
         # 验证远程配置
         self.remote_rerank_config = (
             remote_rerank_config if reranker_type == "remote" else None
@@ -421,7 +421,7 @@ class Knowledge:
                     all_docs_from_chroma: List[Document] = []
                     doc_contents = chroma_get_result.get("documents", [])
                     metadatas = chroma_get_result.get("metadatas", [])
-                    ids = chroma_get_result.get("ids", [])  # 获取 ids 以备将来可能使用
+                    # ids = chroma_get_result.get("ids", [])  # 获取 ids 以备将来可能使用
 
                     # 确保内容和元数据列表长度一致 (理论上 Chroma 会保证)
                     if len(doc_contents) == len(metadatas):
@@ -464,17 +464,18 @@ class Knowledge:
             compressor: Optional[BaseDocumentCompressor] = None
             # ... (现有创建 compressor 的逻辑不变，基于 self.reranker_type) ...
             try:
-                if self.reranker_type == "local":
-                    # ... (加载本地 reranker) ...
-                    encoder_model = HuggingFaceCrossEncoder(
-                        model_name=self.local_rerank_model_path,
-                        model_kwargs={"device": "cpu"},
-                    )  # 示例
-                    compressor = CrossEncoderReranker(
-                        model=encoder_model, top_n=self.rerank_top_n
-                    )
-                    logger.info("本地 CrossEncoderReranker 初始化成功。")
-                elif self.reranker_type == "remote":
+                # 本地重排序模型--discard
+                # if self.reranker_type == "local":
+                #     # ... (加载本地 reranker) ...
+                #     encoder_model = HuggingFaceCrossEncoder(
+                #         model_name=self.local_rerank_model_path,
+                #         model_kwargs={"device": "cpu"},
+                #     )  # 示例
+                #     compressor = CrossEncoderReranker(
+                #         model=encoder_model, top_n=self.rerank_top_n
+                #     )
+                #     logger.info("本地 CrossEncoderReranker 初始化成功。")
+                if self.reranker_type == "remote":
                     # ... (加载远程 reranker) ...
                     if self.remote_rerank_config and self.remote_rerank_config.get(
                         "api_key"

@@ -1,7 +1,8 @@
+import logging
 import os
 
 from beanie import init_beanie
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 #   导入所有文档模型类
 from src.models.assistant import Assistant
@@ -10,34 +11,51 @@ from src.models.knowledgeBase import KnowledgeBase
 from src.models.session import Session
 from src.models.user import User
 
+logger = logging.getLogger(__name__)
+
+# 全局变量 (或更复杂的应用中的DI容器/app state) 来存储数据库实例
+_db_instance: AsyncIOMotorDatabase = None
+
 
 async def init_db():
-    # 从环境变量获取完整的 MongoDB 连接 URL (包含认证信息和数据库名)
+    global _db_instance
+
     mongodb_url = os.getenv("MONGODB_URL")
     if not mongodb_url:
+        logger.error("错误: 环境变量 MONGODB_URL 未设置或为空。请检查 .env 文件。")
         raise ValueError("错误: 环境变量 MONGODB_URL 未设置或为空。请检查 .env 文件。")
 
-    # 从环境变量获取数据库名称 (或者也可以让 Beanie 从 URL 推断)
-    db_name = os.getenv("MONGO_DB_NAME", "fastapi")  # 保留以防万一 URL 中未指定 DB
+    db_name = os.getenv("MONGO_DB_NAME", "fastapi")
+    logger.info(
+        f"Connecting to MongoDB using URL: {mongodb_url} for database: {db_name}"
+    )
 
-    print(
-        f"Connecting to MongoDB using URL: {mongodb_url}"
-    )  # 使用 MONGODB_URL 打印日志
-
-    # 创建Motor客户端
-    # Beanie 会自动处理 URL 中的数据库名，但显式指定也无妨
     client = AsyncIOMotorClient(mongodb_url)
 
-    print("Initializing Beanie...")
-    # 初始化Beanie
-    # 让 Beanie 使用连接到的默认数据库，或者显式指定 client[db_name]
+    # 存储 AsyncIOMotorDatabase 实例
+    _db_instance = client[db_name]
+    logger.info(f"AsyncIOMotorDatabase instance for '{db_name}' created.")
+
+    logger.info("Initializing Beanie...")
     await init_beanie(
-        database=client[db_name],  # 使用从环境变量获取的 db_name
+        database=_db_instance,
         document_models=[
             User,
             Session,
             Assistant,
             ChatHistoryMessage,
             KnowledgeBase,
-        ],  # 添加所有文档模型类
+        ],
     )
+    logger.info("Beanie initialization complete.")
+
+
+def get_motor_db() -> AsyncIOMotorDatabase:
+    """
+    获取已初始化的 AsyncIOMotorDatabase 实例。
+    在调用此函数之前，必须已成功执行 init_db()。
+    """
+    if _db_instance is None:
+        logger.error("严重错误: get_motor_db() 被调用，但数据库实例尚未初始化。")
+        raise RuntimeError("数据库实例尚未初始化。请确保 init_db() 已成功执行。")
+    return _db_instance

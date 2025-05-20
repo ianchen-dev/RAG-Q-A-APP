@@ -44,9 +44,9 @@ async def init_redis_pool():
             db=redis_db,
             password=redis_password,
             decode_responses=True,
-            max_connections=20,  # 示例：为连接池设置一个最大连接数
-            socket_timeout=5,  # 示例：设置连接超时时间
-            socket_connect_timeout=5,  # 示例：设置连接超时时间
+            max_connections=20,  # 为连接池设置一个最大连接数
+            socket_timeout=5,  # 设置连接超时时间
+            socket_connect_timeout=5,  # 设置连接超时时间
         )
 
         # 从连接池创建一个 Redis 客户端实例，供全局使用

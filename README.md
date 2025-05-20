@@ -1,15 +1,20 @@
 # RAG-知识库问答系统
 
-本项目是一个基于 Langchain、FastAPI、Chroma 和 MongoDB 构建的 RAG (Retrieval-Augmented Generation) 知识库问答系统。
+本项目是一个基于 LangChain、FastAPI、Chroma 和 MongoDB 构建的 RAG (Retrieval-Augmented Generation) 知识库问答系统,支持 MCP 服务。
 ![image.png](https://gitee.com/hbchen7/blog_image_hosting/raw/master/20250430153615287.png)
 
 ## 主要功能
 
 ### RAG
 
-- 知识库管理
-- 单文件检索与知识库检索
 - 单文件检索：支持通过元数据过滤（指定文件 MD5）实现对知识库中特定文件的检索问答。
+- BM25 混合检索
+- 重排序
+
+### Agent
+
+- 联网搜索
+- MCP 服务
 
 ### LLM 对话
 

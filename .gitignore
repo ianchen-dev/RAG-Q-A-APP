@@ -6,7 +6,9 @@ test/
 .specstory
 .env.dev
 .env.prod
+langgraph_test/
 compose.yml
+项目结构.md
 # chroma
 chroma/
 src/utils/bge-reranker-large

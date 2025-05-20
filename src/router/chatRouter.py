@@ -30,7 +30,7 @@ class RerankerConfig(BaseModel):
         default="remote",
         description="重排序器类型: 'local' (本地CrossEncoder) 或 'remote' (SiliconFlow API)",
     )
-    # 本地模型路径可以在 Knowledge 类中保持默认，或在这里覆盖（暂不提供覆盖）
+
     remote_rerank_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description="远程 Reranker (SiliconFlow) 配置，当 reranker_type='remote' 时需要。至少包含 'api_key' 和可选的 'model'。 例如: {'api_key': 'your_sf_key', 'model': 'BAAI/bge-reranker-v2-m3'}",
