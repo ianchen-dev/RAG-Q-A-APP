@@ -267,7 +267,7 @@ class Knowledge:
                 f"错误：看起来缺少使用 SemanticChunker 所需的库: {e}", exc_info=True
             )
             logger.error(
-                "请尝试运行: pdm add langchain_experimental sentence-transformers bert_score"
+                "请尝试运行: uv add langchain_experimental sentence-transformers bert_score"
             )
             raise
         except ValueError as e:
@@ -577,6 +577,11 @@ class Knowledge:
 
         logger.info(f"最终返回的检索器类型: {type(final_retriever)}")
         return final_retriever
+
+    async def retrieve_documents(self, kb_id: str, query: str) -> List[Document]:
+        """异步检索文档"""
+        retriever = self.get_retriever_for_knowledge_base(kb_id)
+        return await retriever.ainvoke(query)
 
     @staticmethod
     def get_file_md5(file_path: str) -> str:

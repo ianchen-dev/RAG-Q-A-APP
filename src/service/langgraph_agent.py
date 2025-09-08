@@ -4,16 +4,22 @@ from typing import Any, AsyncGenerator, Dict  # 修改类型提示
 
 from langchain_core.messages import (  # 添加 AIMessage 和 ToolMessage 导入
     AIMessage,
+    HumanMessage,
+
     ToolMessage,
 )
 
 logger = logging.getLogger(__name__)
 # import uvicorn # uvicorn is not used in the main graph logic for now
-from langchain_mcp_adapters.client import MultiServerMCPClient
+# from langchain_mcp_adapters.client import MultiServerMCPClient # 注释掉，改用管理器
 from langchain_tavily import TavilySearch
 from langgraph.prebuilt import create_react_agent
 
+# --- 从新的管理器导入MCP工具获取函数 ---
+from src.config.mcp_client_manager import get_cached_mcp_tools
+from src.service.knowledgeSev import get_knowledge_list_tool
 from src.utils.llm_modle import get_llms
+from src.utils.rag_tools import retriever_document_tool
 
 # app = FastAPI() # FastAPI app instance is not directly used by the graph logic here
 
@@ -38,12 +44,12 @@ from src.utils.llm_modle import get_llms
 
 
 tavily_tool = TavilySearch(max_results=2)
-base_tools = [tavily_tool]
+base_tools = [tavily_tool, get_knowledge_list_tool, retriever_document_tool]
 
-# --- 新增导入 ---
+# --- checkpoint 持久化 ---
 from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver  # MongoDB 检查点器
 
-from src.config.Beanie import get_motor_db  # 从 Beanie 获取数据库实例
+from src.config.Beanie import get_motor_client, get_motor_db  # 从 Beanie 获取客户端和数据库实例
 
 
 async def main_graph_execution(
@@ -53,63 +59,135 @@ async def main_graph_execution(
     """
     Processes events from the react agent graph and yields them as dictionaries.
     """
-    # MCP客户端配置
-    mcp_config = {
-        "howtocook-mcp": {"command": "npx", "args": ["-y", "howtocook-mcp"]},
-        "amap-maps": {
-            "command": "npx",
-            "args": ["-y", "@amap/amap-maps-mcp-server"],
-            "env": {"AMAP_MAPS_API_KEY": "d0ba669a99119b0245cdc0f26cc45607"},
-        },
-        # "current_datetime": {
-        #     "command": "mcp-proxy",
-        #     "args": ["http://127.0.0.1:8001/current_datetime"],
-        # },
-        # 可以添加更多MCP服务配置
-    }
+    # MCP客户端配置 (已移至 mcp_client_manager.py, 此处保留注释备查)
+    # mcp_config = {
+    #     "howtocook-mcp": {"command": "npx", "args": ["-y", "howtocook-mcp"]},
+    #     "amap-maps": {
+    #         "command": "npx",
+    #         "args": ["-y", "@amap/amap-maps-mcp-server"],
+    #         "env": {"AMAP_MAPS_API_KEY": "d0ba669a99119b0245cdc0f26cc45607"},
+    #     },
+    #     # "current_datetime": {
+    #     #     "command": "mcp-proxy",
+    #     #     "args": ["http://127.0.0.1:8001/current_datetime"],
+    #     # },
+    #     # 可以添加更多MCP服务配置
+    # }
 
-    # --- 获取 MongoDB 数据库实例并初始化 MongoDBSaver ---
+    # --- 获取 MongoDB 连接信息并准备 MongoDBSaver ---
     try:
         motor_database_instance = get_motor_db()
-        logger.info(f"成功获取 MongoDB 实例: {motor_database_instance.name}")
+        db_name = motor_database_instance.name
+        logger.info(f"成功获取 MongoDB 数据库实例: {db_name}")
     except RuntimeError as e:
         logger.error(f"获取 MongoDB 实例失败: {e}")
         yield {"type": "error", "data": f"MongoDB not properly initialized: {e}"}
         return
 
-    checkpoints_collection_name = "checkpointsHistory"  # 你选择的集合名称
+    # 获取 MongoDB 连接字符串
+    import os
+    mongodb_url = os.getenv("MONGODB_URL")
+    if not mongodb_url:
+        logger.error("MONGODB_URL 环境变量未设置")
+        yield {"type": "error", "data": "MONGODB_URL environment variable not set"}
+        return
 
-    # 创建 MongoDBSaver 实例
-    # MongoDBSaver 构造函数期望一个 AsyncIOMotorDatabase 实例 (client[db_name])
-    checkpointer = AsyncMongoDBSaver(
-        client=motor_database_instance,
-        db_name=motor_database_instance.name,
-        checkpoints_collection_name=checkpoints_collection_name,
-    )
-    logger.info(
-        f"MongoDBSaver initialized for collection: {checkpoints_collection_name}"
-    )
+    checkpoint_collection_name = "checkpointsHistory"  # 集合名称（注意：新版本参数名去掉了 s）
+    logger.info(f"准备初始化 MongoDBSaver，数据库: {db_name}, 集合: {checkpoint_collection_name}")
     # --- MongoDB 配置结束 ---
 
-    async with MultiServerMCPClient(mcp_config) as client:
-        logger.info("MCP Client started.")
-        llm = get_llms(
-            supplier="oneapi",
-            model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用
-            api_key=os.getenv("ONEAPI_API_KEY"),
-            streaming=True,
-        )
-        mcp_tools = client.get_tools()
-        logger.info("--- Acquired MCP Tools ---")
+    # async with MultiServerMCPClient(mcp_config) as client: # 注释掉，改用管理器获取工具
+    #     logger.info("MCP Client started.")
+    #     llm = get_llms(
+    #         supplier="oneapi",
+    #         model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用
+    #         api_key=os.getenv("ONEAPI_API_KEY"),
+    #         streaming=True,
+    #     )
+    #     mcp_tools = client.get_tools()
+    #     logger.info("--- Acquired MCP Tools ---")
+    #     for m_tool in mcp_tools:
+    #         logger.info(f"  Name: {m_tool.name}, Description: {m_tool.description}")
+    #     logger.info("-" * 26)
+
+    #     all_tools_for_this_run = base_tools + mcp_tools
+    #     logger.info("--- All Tools for this Run ---")
+    #     for t in all_tools_for_this_run:
+    #         logger.info(f"  Name: {t.name}")
+    #     logger.info("-" * 30)
+
+    #     # 使用 MongoDBSaver 替换 MemorySaver
+    #     agent_executor = create_react_agent(
+    #         model=llm,
+    #         tools=all_tools_for_this_run,
+    #         checkpointer=checkpointer,  # <--- 使用配置好的 MongoDB checkpointer
+    #         # debug=True # 可选
+    #     )
+    #     logger.info(
+    #         "Graph compiled using create_react_agent with MongoDB checkpointer."
+    #     )
+
+    #     # 使用传入的 session_id 作为 thread_id
+    #     config = {"configurable": {"thread_id": session_id}}
+    #     logger.info(
+    #         f"Streaming graph with input: '{user_input}' for thread_id: '{session_id}'"
+    #     )
+
+    #     # 使用 astream 并指定 stream_mode=["updates", "messages"]
+    #     # LangGraph 的 astream 在组合模式下通常 yield (stream_mode, event_data)
+    #     async for stream_mode, event_data in agent_executor.astream(
+    #         {"messages": [{"role": "user", "content": user_input}]},
+    #         config,
+    #         stream_mode=["updates", "messages"],
+    #     ):
+
+    # 使用新版本的 AsyncMongoDBSaver.from_conn_string 异步上下文管理器
+    async with AsyncMongoDBSaver.from_conn_string(
+        conn_string=mongodb_url,
+        db_name=db_name,
+        checkpoint_collection_name=checkpoint_collection_name,
+    ) as checkpointer:
+        logger.info(f"MongoDBSaver 初始化成功，集合: {checkpoint_collection_name}")
+        
+        # 从管理器获取预加载的 MCP 工具
+        mcp_tools = await get_cached_mcp_tools()
+        if not mcp_tools:
+            # 这是一个关键的检查点：如果应用启动时MCP客户端未能成功加载工具，
+            # 那么在这里它们将为空。需要决定此时的行为：
+            # 1. 记录警告/错误并继续，只使用 base_tools (Agent能力受限)
+            # 2. 抛出异常或返回错误信息，指示MCP工具不可用
+            # 3. 尝试在此处动态启动一个临时的MCPClient (违背初衷，但作为后备)
+            logger.warning(
+                "MCP tools not available from manager. Proceeding without them or with an error."
+            )
+            # 选项1: 继续，可能只用base_tools，或者让 all_tools_for_this_run 为空导致后续问题
+            # 或者，如果MCP工具是必须的，应该在这里处理错误并提前返回
+            # yield {"type": "error", "data": "Critical MCP tools are not available."}
+            # return
+
+        logger.info(f"Retrieved {len(mcp_tools)} MCP tools from manager.")
         for m_tool in mcp_tools:
-            logger.info(f"  Name: {m_tool.name}, Description: {m_tool.description}")
-        logger.info("-" * 26)
+            logger.info(f"  MCP Tool (from manager): {m_tool.name}")
 
         all_tools_for_this_run = base_tools + mcp_tools
-        logger.info("--- All Tools for this Run ---")
+        logger.info("--- All Tools for this Run (using managed MCP tools) ---")
         for t in all_tools_for_this_run:
             logger.info(f"  Name: {t.name}")
         logger.info("-" * 30)
+        # 获取 LLM
+     
+        # llm = get_llms(
+        #     supplier="oneapi",
+        #     model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用
+        #     api_key=os.getenv("ONEAPI_API_KEY"),
+        #     streaming=True,
+        # )
+        llm = get_llms(
+            supplier="siliconflow",
+            model="deepseek-ai/DeepSeek-V3",
+            api_key=os.getenv("SILICONFLOW_API_KEY"),
+            streaming=True,
+        )
 
         # 使用 MongoDBSaver 替换 MemorySaver
         agent_executor = create_react_agent(
@@ -119,19 +197,17 @@ async def main_graph_execution(
             # debug=True # 可选
         )
         logger.info(
-            "Graph compiled using create_react_agent with MongoDB checkpointer."
+            "Graph compiled using create_react_agent with MongoDB checkpointer (and managed MCP tools)."
         )
 
         # 使用传入的 session_id 作为 thread_id
         config = {"configurable": {"thread_id": session_id}}
         logger.info(
-            f"Streaming graph with input: '{user_input}' for thread_id: '{session_id}'"
+            f"Streaming graph with input: '{user_input}' for thread_id: '{session_id}' (managed MCP)"
         )
 
-        # 使用 astream 并指定 stream_mode=["updates", "messages"]
-        # LangGraph 的 astream 在组合模式下通常 yield (stream_mode, event_data)
         async for stream_mode, event_data in agent_executor.astream(
-            {"messages": [{"role": "user", "content": user_input}]},
+            {"messages": [HumanMessage(content=user_input)]},
             config,
             stream_mode=["updates", "messages"],
         ):
@@ -148,16 +224,16 @@ async def main_graph_execution(
                         token = message_chunk.content
                 elif isinstance(event_data, str):
                     token = event_data
-                logger.info(
-                    f"Stream mode: {stream_mode},token.type: {type(token)}, Event data: {token}"
-                )
-                if token.startswith("{"):  # 去除ToolMessage部分
+                # logger.info(
+                #     f"Stream mode: {stream_mode},token.type: {type(token)}, Event data: {token}"
+                # )
+                if token.startswith(("{", "[")):  # 过滤掉其中的 ToolMessage
                     token = ""
                 if token:
                     yield {"type": "chunk", "data": token}  # Yield 字典
 
             elif stream_mode == "updates":
-                logger.warning(
+                logger.info(
                     f"___updates______Stream mode: {stream_mode},type: {type(event_data)}, Event data: {event_data}"
                 )
                 if (

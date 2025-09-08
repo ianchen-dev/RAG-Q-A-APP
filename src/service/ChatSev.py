@@ -125,7 +125,7 @@ class ChatSev:
         supplier: str,
         model: str,
         knowledge_base_id: Optional[str],
-        filter_by_file_md5: Optional[str],
+        filter_by_file_md5: Optional[list[str]],
         search_k: int,
         max_length: Optional[int],
         temperature: float,
@@ -243,7 +243,7 @@ class ChatSev:
             if kb_data:  # 只有成功获取到数据才尝试创建 RAG 链
                 filter_dict = None
                 if filter_by_file_md5:
-                    filter_dict = {"source_file_md5": str(filter_by_file_md5)}
+                    filter_dict = {"source_file_md5": {"$in": filter_by_file_md5}}
 
                 try:
                     retriever = await self.knowledge.get_retriever_for_knowledge_base(

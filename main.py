@@ -24,6 +24,9 @@ os.environ["LANGCHAIN_PROJECT"] = (
 )
 
 from src.config.Beanie import init_db
+
+# --- 导入 MCP Client 管理器 ---
+from src.config.mcp_client_manager import shutdown_mcp_client, startup_mcp_client
 from src.config.Redis import close_redis_pool, get_redis_client, init_redis_pool
 from src.models.user import User  # 导入 User 模型
 from src.service.knowledgeSev import load_all_knowledge_bases_to_cache
@@ -41,6 +44,12 @@ async def lifespan(app: FastAPI):
     logger.info("应用程序启动：正在初始化 Redis 连接池...")
     await init_redis_pool()
     logger.info("Redis 连接池初始化完成。")
+
+    # --- 启动 MCP Client ---
+    logger.info("应用程序启动：正在初始化 MCP 客户端...")
+    await startup_mcp_client()
+    logger.info("MCP 客户端初始化完成。")
+    # --- MCP Client 启动结束 ---
 
     # --- 修改：预加载知识库缓存 ---
     # 使用 get_redis_client() 来检查和获取客户端
@@ -81,6 +90,13 @@ async def lifespan(app: FastAPI):
     logger.info("应用程序关闭：正在关闭 Redis 连接池...")
     await close_redis_pool()
     logger.info("Redis 连接池已关闭。")
+
+    # --- 关闭 MCP Client ---
+    logger.info("应用程序关闭：正在关闭 MCP 客户端...")
+    await shutdown_mcp_client()
+    logger.info("MCP 客户端已关闭。")
+    # --- MCP Client 关闭结束 ---
+
     logger.info("应用程序已成功关闭。")
 
 

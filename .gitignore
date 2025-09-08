@@ -1,3 +1,5 @@
+.vscode/
+Makefile
 doc/
 test/
 .cursor/

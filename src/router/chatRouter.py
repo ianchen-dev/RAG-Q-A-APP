@@ -40,7 +40,10 @@ class RerankerConfig(BaseModel):
 
 class KnowledgeConfig(BaseModel):
     knowledge_base_id: str
-    filter_by_file_md5: Optional[str] = None
+    filter_by_file_md5: Optional[list[str]] = Field(
+        default=None,
+        description="文件MD5，用于指定检索的若干个文档，如果为None，则检索所选知识库中的全部文件",
+    )
     search_k: Optional[int] = Field(
         default=10, ge=1, description="基础检索器返回的文档数量 (应 >= rerank_top_n)"
     )

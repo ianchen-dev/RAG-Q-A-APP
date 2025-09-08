@@ -25,10 +25,19 @@ def get_llms(
             return ChatOpenAI(model=model, temperature=temperature, streaming=streaming)
         elif supplier == "siliconflow":
             return BaseChatOpenAI(
-                model=os.getenv("SILICONFLOW_MODEL"),  #
+                # model=os.getenv("SILICONFLOW_MODEL"),
+                model="deepseek-ai/DeepSeek-V3",  #
                 openai_api_key=os.getenv("SILICONFLOW_API_KEY"),
-                openai_api_base=os.getenv("SILICONFLOW_URL"),
+                openai_api_base="https://api.siliconflow.cn/v1",
                 streaming=streaming,
+            )
+        elif supplier == "volces":
+            return BaseChatOpenAI(
+                model="deepseek-v3-250324",
+                openai_api_key=os.getenv("VOLCES_API_KEY"),
+                openai_api_base="https://ark.cn-beijing.volces.com/api/v3/",
+                # streaming=True,
+                stream=True
                 # max_tokens=int(os.getenv("MAX_TOKENS")),
             )
 

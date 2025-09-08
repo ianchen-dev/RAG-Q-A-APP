@@ -1,20 +1,25 @@
 # 使用多阶段构建
-FROM python:3.10-slim-bookworm as builder
+FROM python:3.10-slim-bookworm AS builder
 
 # 设置工作目录
 WORKDIR /app
 
-# 首先只复制依赖相关文件
-COPY requirements.txt .
+# 安装 UV
+RUN pip install --no-cache-dir uv
 
-# 安装依赖 # --no-cache-dir
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --extra-index-url https://mirrors.aliyun.com/pypi/simple/ --extra-index-url https://pypi.mirrors.ustc.edu.cn/simple -r requirements.txt
+# 首先只复制依赖相关文件
+COPY pyproject.toml uv.lock ./
+
+# 导出依赖到requirements格式，然后使用uv pip安装
+RUN uv export --no-dev --format requirements-txt > requirements.txt
+RUN uv pip install --system --no-cache --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # 安装 Node.js 和 npm (包含 npx)---MCP服务
-RUN apt-get update && \
-    apt-get install -y curl gnupg && \
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl gnupg && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
+    apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

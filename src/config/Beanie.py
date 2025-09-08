@@ -13,12 +13,13 @@ from src.models.user import User
 
 logger = logging.getLogger(__name__)
 
-# 全局变量 (或更复杂的应用中的DI容器/app state) 来存储数据库实例
+# 全局变量 (或更复杂的应用中的DI容器/app state) 来存储数据库实例和客户端实例
 _db_instance: AsyncIOMotorDatabase = None
+_client_instance: AsyncIOMotorClient = None
 
 
 async def init_db():
-    global _db_instance
+    global _db_instance, _client_instance
 
     mongodb_url = os.getenv("MONGODB_URL")
     if not mongodb_url:
@@ -32,9 +33,10 @@ async def init_db():
 
     client = AsyncIOMotorClient(mongodb_url)
 
-    # 存储 AsyncIOMotorDatabase 实例
+    # 存储客户端和数据库实例
+    _client_instance = client
     _db_instance = client[db_name]
-    logger.info(f"AsyncIOMotorDatabase instance for '{db_name}' created.")
+    logger.info(f"AsyncIOMotorClient and AsyncIOMotorDatabase instances for '{db_name}' created.")
 
     logger.info("Initializing Beanie...")
     await init_beanie(
@@ -59,3 +61,14 @@ def get_motor_db() -> AsyncIOMotorDatabase:
         logger.error("严重错误: get_motor_db() 被调用，但数据库实例尚未初始化。")
         raise RuntimeError("数据库实例尚未初始化。请确保 init_db() 已成功执行。")
     return _db_instance
+
+
+def get_motor_client() -> AsyncIOMotorClient:
+    """
+    获取已初始化的 AsyncIOMotorClient 实例。
+    在调用此函数之前，必须已成功执行 init_db()。
+    """
+    if _client_instance is None:
+        logger.error("严重错误: get_motor_client() 被调用，但客户端实例尚未初始化。")
+        raise RuntimeError("客户端实例尚未初始化。请确保 init_db() 已成功执行。")
+    return _client_instance

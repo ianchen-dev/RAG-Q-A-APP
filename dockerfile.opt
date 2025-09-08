@@ -1,0 +1,100 @@
+# ================================
+# 阶段 1: 构建阶段 - 安装依赖
+# ================================
+FROM python:3.10-slim-bookworm AS builder
+
+WORKDIR /app
+
+# 配置国内镜像源并安装系统依赖（仅构建时需要）
+RUN (sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+     sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true) && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    curl \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 UV（使用国内镜像源）
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple uv
+
+# 复制依赖文件
+COPY pyproject.toml uv.lock ./
+
+# 导出依赖并使用系统安装（更可靠的方式）
+RUN uv export --no-dev --no-group ai-full --no-group semantic --format requirements-txt > requirements-core.txt
+RUN uv export --group agent --format requirements-txt > requirements-agent.txt
+
+# 安装核心依赖和 Agent 功能到系统（使用国内镜像源）
+RUN uv pip install --system --no-cache --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-core.txt
+RUN uv pip install --system --no-cache --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements-agent.txt
+
+# 验证安装
+RUN python -c "import uvicorn; print('uvicorn installed successfully')"
+
+# ================================
+# 阶段 2: Node.js 工具阶段（可选）
+# ================================
+FROM node:20-alpine AS node-tools
+
+# 这里可以预安装需要的 Node.js 工具
+RUN npm install -g some-mcp-tools 2>/dev/null || echo "跳过 MCP 工具安装"
+
+# ================================
+# 阶段 3: 运行时阶段 - 最小化镜像
+# ================================
+FROM python:3.10-slim-bookworm AS runtime
+
+# 创建非 root 用户并设置home目录
+RUN groupadd -r appuser && useradd -r -g appuser -m -d /home/appuser appuser \
+    && mkdir -p /home/appuser/.npm \
+    && chown -R appuser:appuser /home/appuser
+
+# 配置国内镜像源并安装运行时必需的系统包
+RUN (sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+     sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list 2>/dev/null || true) && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    # 如果确实需要 Node.js，只安装最小版本
+    nodejs \
+    npm \
+    # 其他运行时依赖
+    libpq5 \
+    # 健康检查需要的工具
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# 从构建阶段复制系统安装的 Python 包
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# 从 Node.js 阶段复制工具（如果需要）
+# COPY --from=node-tools /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制应用代码（注意 .dockerignore）
+COPY --chown=appuser:appuser . .
+
+# 为npm配置用户级别的全局安装目录
+RUN mkdir -p /home/appuser/.npm-global \
+    && chown -R appuser:appuser /home/appuser/.npm-global
+
+# 切换到非 root 用户
+USER appuser
+
+# 配置npm使用用户级别的全局目录
+ENV NPM_CONFIG_PREFIX=/home/appuser/.npm-global
+ENV PATH=$PATH:/home/appuser/.npm-global/bin
+
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查（使用根路径，因为应用可能没有 /health 端点）
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD /usr/bin/curl -f http://localhost:8080/ || exit 1
+
+# 启动命令（使用系统安装的 uvicorn）
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
