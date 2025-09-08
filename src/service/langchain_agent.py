@@ -3,12 +3,22 @@ import os
 from typing import Any, AsyncGenerator, Dict, List
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
+
 # BaseMessage 导入已移除，因为 astream_events 不需要直接处理消息类型
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import ConfigurableFieldSpec
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
-from langchain_tavily import TavilySearch
+
+# 使用条件导入来避免 aiohttp 循环导入问题
+try:
+    from langchain_tavily import TavilySearch
+
+    TAVILY_AVAILABLE = True
+except ImportError as e:
+    print(f"警告：无法导入 TavilySearch，将使用备用搜索工具: {e}")
+    TavilySearch = None
+    TAVILY_AVAILABLE = False
 
 # 从管理器导入MCP工具获取函数
 from src.config.mcp_client_manager import get_cached_mcp_tools
@@ -24,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 class LangChainAgent:
     """基于 LangChain 的 Agent 实现，功能与 LangGraph 版本保持一致"""
-    
+
     def __init__(self):
         # MongoDB 配置，保持与 ChatSev.py 一致
         self.mongo_connection_string = os.getenv("MONGODB_URL")
@@ -42,18 +52,33 @@ class LangChainAgent:
             raise ValueError(
                 "错误：环境变量 MONGODB_COLLECTION_NAME_CHATHISTORY 未设置或为空。请检查您的 .env 文件或系统环境变量。"
             )
-            
-        # 基础工具配置
-        self.tavily_tool = TavilySearch(max_results=2)
-        self.base_tools = [self.tavily_tool, get_knowledge_list_tool, retriever_document_tool]
-        
+
+        # 基础工具配置 - 条件性添加 Tavily 搜索工具
+        self.base_tools = [get_knowledge_list_tool, retriever_document_tool]
+
+        # 如果 TavilySearch 可用，则添加到工具列表
+        if TAVILY_AVAILABLE and TavilySearch is not None:
+            try:
+                self.tavily_tool = TavilySearch(max_results=2)
+                self.base_tools.append(self.tavily_tool)
+                logger.info("成功添加 TavilySearch 工具")
+            except Exception as e:
+                logger.warning(f"初始化 TavilySearch 失败: {e}")
+        else:
+            logger.info("TavilySearch 不可用，仅使用知识库工具")
+
         # Tool Calling Agent 提示模板 - 支持原生工具调用
-        self.tool_calling_prompt = ChatPromptTemplate.from_messages([
-            ("system", "你是一个助手，你擅长使用工具帮助用户解决问题。你拥有知识库检索工具（查询本地知识库，检索其中的内容，回答用户问题）、联网搜索的工具、食谱推荐工具、高德地图工具（路线规划等）。你会先告知用户你将用xx工具来解决问题，再调用工具，获取需要的信息后，给用户答复"),
-            ("placeholder", "{chat_history}"),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ])
+        self.tool_calling_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "你是一个助手，你擅长使用工具帮助用户解决问题。你拥有知识库检索工具（查询本地知识库，检索其中的内容，回答用户问题）、联网搜索的工具、食谱推荐工具、高德地图工具（路线规划等）。你会先告知用户你将用xx工具来解决问题，再调用工具，获取需要的信息后，给用户答复",
+                ),
+                ("placeholder", "{chat_history}"),
+                ("human", "{input}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ]
+        )
 
     def get_session_chat_history(self, session_id: str) -> MongoDBChatMessageHistory:
         """根据 session_id 获取 MongoDB 聊天记录实例，与 ChatSev.py 保持一致"""
@@ -64,7 +89,7 @@ class LangChainAgent:
             database_name=self.mongo_database_name,
             collection_name=self.mongo_collection_name,
         )
-        
+
     async def _get_all_tools(self) -> List[Any]:
         """获取所有可用工具（基础工具 + MCP 工具）"""
         # 从管理器获取预加载的 MCP 工具
@@ -77,17 +102,17 @@ class LangChainAgent:
             logger.info(f"Retrieved {len(mcp_tools)} MCP tools from manager.")
             for m_tool in mcp_tools:
                 logger.info(f"  MCP Tool: {m_tool.name}")
-        
+
         all_tools = self.base_tools + mcp_tools
         logger.info("--- All Tools for LangChain Agent ---")
         for tool in all_tools:
             logger.info(f"  Name: {tool.name}")
         logger.info("-" * 40)
-        
+
         return all_tools
-        
-# _create_agent_executor 方法已移除，因为 stream_chat 中直接创建 AgentExecutor
-        
+
+    # _create_agent_executor 方法已移除，因为 stream_chat 中直接创建 AgentExecutor
+
     async def stream_chat(
         self,
         user_input: str,
@@ -95,11 +120,11 @@ class LangChainAgent:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         流式处理用户输入，使用 astream_events 方法实现真正的 token 级流式输出
-        
+
         Args:
             user_input: 用户输入的问题
             session_id: 会话ID，用于历史记录管理
-            
+
         Yields:
             Dict[str, Any]: 包含 'type' 和 'data' 的事件字典
             - {"type": "chunk", "data": "token"}  # 真正的 token 级流式输出
@@ -109,8 +134,8 @@ class LangChainAgent:
         """
         try:
             logger.info(f"开始处理用户输入: '{user_input}' (session_id: {session_id})")
-            
-            # 获取 LLM 
+
+            # 获取 LLM
             # 硅基流动出现工具参数不兼容，故在agent模式下弃用
             # llm = get_llms(
             #     supplier="siliconflow",
@@ -119,22 +144,17 @@ class LangChainAgent:
             #     streaming=True,  # 显式启用流式输出
             # )
 
-            llm = get_llms(
-                supplier="volces",
-                model="deepseek"
-                
-            )
+            llm = get_llms(supplier="volces", model="deepseek")
 
-            
             # 验证 LLM 是否支持流式输出
             logger.info(f"LLM 流式输出配置: {getattr(llm, 'streaming', 'unknown')}")
-            
+
             # 获取所有工具
             all_tools = await self._get_all_tools()
-            
+
             # 创建 Tool Calling Agent
             agent = create_tool_calling_agent(llm, all_tools, self.tool_calling_prompt)
-            
+
             # 创建 AgentExecutor
             agent_executor = AgentExecutor(
                 agent=agent,
@@ -146,7 +166,7 @@ class LangChainAgent:
                 streaming=True,
             )
             logger.info("AgentExecutor 创建成功")
-            
+
             # 包装历史记录管理 - 模仿 ChatSev.py 的做法
             agent_with_history = RunnableWithMessageHistory(
                 agent_executor,
@@ -165,32 +185,32 @@ class LangChainAgent:
                     )
                 ],
             )
-            
+
             # 准备配置和输入
             config = {"configurable": {"session_id": session_id}}
             agent_input = {"input": user_input}
-            
+
             logger.info(f"开始流式执行 agent (session_id: {session_id})")
-            
+
             # 用于收集完整输出以保存到历史记录
             collected_output = []
-            
+
             # 使用 astream_events 进行真正的 token 级流式处理
             # 尝试不同的版本参数或不使用版本参数
             async for event in agent_with_history.astream_events(
-                agent_input, 
-                config=config
+                agent_input,
+                config=config,
                 # 暂时移除 version 参数，看看是否有区别
             ):
                 event_type = event.get("event")
                 event_name = event.get("name", "")
                 event_data = event.get("data", {})
-                
+
                 # 详细日志记录所有事件类型，用于调试
                 # logger.info(f"事件类型: {event_type}, 名称: {event_name}, 数据: {event_data}")
-                
+
                 # 处理所有可能的流式事件类型
-                
+
                 # 处理 LLM token 流式输出 - 这是真正的 token 级流式输出！
                 if event_type == "on_llm_stream":
                     logger.info(f"LLM 流事件: {event_data}")
@@ -201,7 +221,7 @@ class LangChainAgent:
                             collected_output.append(token)
                             logger.info(f"发送 token: '{token}'")
                             yield {"type": "chunk", "data": token}
-                
+
                 # 处理 Chat Model 流式输出（另一种可能的事件类型）
                 elif event_type == "on_chat_model_stream":
                     logger.info(f"Chat Model 流事件: {event_data}")
@@ -212,52 +232,56 @@ class LangChainAgent:
                             collected_output.append(token)
                             logger.info(f"发送 token (chat_model): '{token}'")
                             yield {"type": "chunk", "data": token}
-                
+
                 # 处理工具调用开始事件
                 elif event_type == "on_tool_start":
                     tool_name = event_name
                     tool_input = event_data.get("input", {})
                     # 使用事件的运行 ID 确保唯一性和一致性
                     run_id = event.get("run_id", "")
-                    call_id = f"call_{run_id}_{tool_name}" if run_id else f"call_{hash(str(tool_name) + str(tool_input))}"
-                    
+                    call_id = (
+                        f"call_{run_id}_{tool_name}"
+                        if run_id
+                        else f"call_{hash(str(tool_name) + str(tool_input))}"
+                    )
+
                     # 存储 call_id 映射，用于后续的 tool_result 事件
-                    if not hasattr(self, '_tool_call_mapping'):
+                    if not hasattr(self, "_tool_call_mapping"):
                         self._tool_call_mapping = {}
                     # 使用 run_id 作为键，确保匹配
                     mapping_key = f"{run_id}_{tool_name}" if run_id else tool_name
                     self._tool_call_mapping[mapping_key] = call_id
-                    
+
                     logger.info(f"生成工具调用事件: {tool_name}, call_id: {call_id}")
                     yield {
                         "type": "tool_call",
-                        "data": {
-                            "name": tool_name,
-                            "args": tool_input,
-                            "id": call_id
-                        }
+                        "data": {"name": tool_name, "args": tool_input, "id": call_id},
                     }
-                
+
                 # 处理工具调用结束事件
                 elif event_type == "on_tool_end":
                     tool_name = event_name
                     tool_output = event_data.get("output")
                     run_id = event.get("run_id", "")
-                    
+
                     # 使用相同的映射键获取 call_id
                     mapping_key = f"{run_id}_{tool_name}" if run_id else tool_name
-                    call_id = getattr(self, '_tool_call_mapping', {}).get(mapping_key, f"call_{hash(str(tool_name))}")
-                    
-                    logger.info(f"生成工具结果事件: {tool_name}, tool_call_id: {call_id}")
+                    call_id = getattr(self, "_tool_call_mapping", {}).get(
+                        mapping_key, f"call_{hash(str(tool_name))}"
+                    )
+
+                    logger.info(
+                        f"生成工具结果事件: {tool_name}, tool_call_id: {call_id}"
+                    )
                     yield {
                         "type": "tool_result",
                         "data": {
                             "name": tool_name,
                             "content": str(tool_output),
-                            "tool_call_id": call_id
-                        }
+                            "tool_call_id": call_id,
+                        },
                     }
-                
+
                 # 处理 Agent 动作事件
                 elif event_type == "on_agent_action":
                     action = event_data.get("action")
@@ -267,10 +291,10 @@ class LangChainAgent:
                             "data": {
                                 "name": action.tool,
                                 "args": action.tool_input,
-                                "id": f"call_{hash(str(action))}"
-                            }
+                                "id": f"call_{hash(str(action))}",
+                            },
                         }
-                
+
                 # 处理 Chain 流式输出（备用方案）
                 elif event_type == "on_chain_stream":
                     logger.info(f"Chain 流事件: {event_data}")
@@ -283,7 +307,7 @@ class LangChainAgent:
                                 collected_output.append(output_content)
                                 logger.info(f"发送 chain 输出: '{output_content}'")
                                 yield {"type": "chunk", "data": output_content}
-                
+
                 # 通用事件处理器 - 捕获所有包含 chunk 的流式事件
                 elif "stream" in event_type and event_data:
                     logger.info(f"通用流事件 {event_type}: {event_data}")
@@ -297,20 +321,19 @@ class LangChainAgent:
                             content = chunk
                         elif isinstance(chunk, dict) and "content" in chunk:
                             content = chunk["content"]
-                        
+
                         if content and content.strip():
                             collected_output.append(content)
                             logger.info(f"发送通用流内容: '{content}'")
                             yield {"type": "chunk", "data": content}
-            
+
             # 发送流结束信号
             yield {"type": "stream_end"}
             logger.info(f"Agent 流式处理完成 (session_id: {session_id})")
-            
+
         except Exception as e:
             logger.error(
-                f"流式处理时发生错误 (session_id: {session_id}): {e}", 
-                exc_info=True
+                f"流式处理时发生错误 (session_id: {session_id}): {e}", exc_info=True
             )
             yield {"type": "error", "data": f"处理请求时发生错误: {e}"}
 
@@ -333,11 +356,11 @@ async def main_graph_execution(
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     主要执行函数，保持与原 react_agent.py 相同的接口
-    
+
     Args:
         user_input: 用户输入
         session_id: 会话ID
-        
+
     Yields:
         Dict[str, Any]: 事件流字典，包含以下类型：
         - {"type": "tool_call", "data": {...}}    # 工具调用开始
@@ -354,35 +377,39 @@ async def main_graph_execution(
 # 使用示例
 if __name__ == "__main__":
     pass  # 测试代码已注释，避免在导入时执行
-    
+
     async def test_agent():
         """测试 LangChain Agent 的基本功能"""
         session_id = "test_session_123"
         user_input = "你好，请帮我搜索一下最新的AI技术发展"
-        
+
         print("开始测试 LangChain Agent...")
         print(f"用户输入: {user_input}")
         print(f"会话ID: {session_id}")
         print("-" * 50)
-        
+
         try:
             async for event in main_graph_execution(user_input, session_id):
                 event_type = event.get("type")
                 event_data = event.get("data")
-                
+
                 if event_type == "tool_call":
-                    print(f"🔧 工具调用: {event_data.get('name')} | 参数: {event_data.get('args')}")
+                    print(
+                        f"🔧 工具调用: {event_data.get('name')} | 参数: {event_data.get('args')}"
+                    )
                 elif event_type == "tool_result":
-                    print(f"📋 工具结果: {event_data.get('name')} | 内容: {event_data.get('content')[:100]}...")
+                    print(
+                        f"📋 工具结果: {event_data.get('name')} | 内容: {event_data.get('content')[:100]}..."
+                    )
                 elif event_type == "chunk":
                     print(f"💬 输出: {event_data}", end="", flush=True)
                 elif event_type == "stream_end":
                     print("\n✅ 流式输出结束")
                 elif event_type == "error":
                     print(f"❌ 错误: {event_data}")
-                    
+
         except Exception as e:
             print(f"❌ 测试过程中发生错误: {e}")
-    
+
     # 运行测试
     # asyncio.run(test_agent())

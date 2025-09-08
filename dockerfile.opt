@@ -78,6 +78,9 @@ WORKDIR /app
 # 复制应用代码（注意 .dockerignore）
 COPY --chown=appuser:appuser . .
 
+# 创建chroma目录并设置正确的权限
+RUN mkdir -p /app/chroma && chown -R appuser:appuser /app/chroma
+
 # 为npm配置用户级别的全局安装目录
 RUN mkdir -p /home/appuser/.npm-global \
     && chown -R appuser:appuser /home/appuser/.npm-global

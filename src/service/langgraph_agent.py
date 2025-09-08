@@ -5,14 +5,21 @@ from typing import Any, AsyncGenerator, Dict  # 修改类型提示
 from langchain_core.messages import (  # 添加 AIMessage 和 ToolMessage 导入
     AIMessage,
     HumanMessage,
-
     ToolMessage,
 )
 
 logger = logging.getLogger(__name__)
 # import uvicorn # uvicorn is not used in the main graph logic for now
 # from langchain_mcp_adapters.client import MultiServerMCPClient # 注释掉，改用管理器
-from langchain_tavily import TavilySearch
+# 使用条件导入来避免 aiohttp 循环导入问题
+try:
+    from langchain_tavily import TavilySearch
+
+    TAVILY_AVAILABLE = True
+except ImportError as e:
+    print(f"警告：无法导入 TavilySearch，将使用备用搜索工具: {e}")
+    TavilySearch = None
+    TAVILY_AVAILABLE = False
 from langgraph.prebuilt import create_react_agent
 
 # --- 从新的管理器导入MCP工具获取函数 ---
@@ -43,13 +50,26 @@ from src.utils.rag_tools import retriever_document_tool
 #     return "Human assistance was invoked, but no data was returned from the interrupt."
 
 
-tavily_tool = TavilySearch(max_results=2)
-base_tools = [tavily_tool, get_knowledge_list_tool, retriever_document_tool]
+# 基础工具配置 - 条件性添加 Tavily 搜索工具
+base_tools = [get_knowledge_list_tool, retriever_document_tool]
+
+# 如果 TavilySearch 可用，则添加到工具列表
+if TAVILY_AVAILABLE and TavilySearch is not None:
+    try:
+        tavily_tool = TavilySearch(max_results=2)
+        base_tools.append(tavily_tool)
+        logger.info("成功添加 TavilySearch 工具")
+    except Exception as e:
+        logger.warning(f"初始化 TavilySearch 失败: {e}")
+else:
+    logger.info("TavilySearch 不可用，仅使用知识库工具")
 
 # --- checkpoint 持久化 ---
 from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver  # MongoDB 检查点器
 
-from src.config.Beanie import get_motor_client, get_motor_db  # 从 Beanie 获取客户端和数据库实例
+from src.config.Beanie import (  # 从 Beanie 获取客户端和数据库实例
+    get_motor_db,
+)
 
 
 async def main_graph_execution(
@@ -85,15 +105,18 @@ async def main_graph_execution(
         return
 
     # 获取 MongoDB 连接字符串
-    import os
     mongodb_url = os.getenv("MONGODB_URL")
     if not mongodb_url:
         logger.error("MONGODB_URL 环境变量未设置")
         yield {"type": "error", "data": "MONGODB_URL environment variable not set"}
         return
 
-    checkpoint_collection_name = "checkpointsHistory"  # 集合名称（注意：新版本参数名去掉了 s）
-    logger.info(f"准备初始化 MongoDBSaver，数据库: {db_name}, 集合: {checkpoint_collection_name}")
+    checkpoint_collection_name = (
+        "checkpointsHistory"  # 集合名称（注意：新版本参数名去掉了 s）
+    )
+    logger.info(
+        f"准备初始化 MongoDBSaver，数据库: {db_name}, 集合: {checkpoint_collection_name}"
+    )
     # --- MongoDB 配置结束 ---
 
     # async with MultiServerMCPClient(mcp_config) as client: # 注释掉，改用管理器获取工具
@@ -148,7 +171,7 @@ async def main_graph_execution(
         checkpoint_collection_name=checkpoint_collection_name,
     ) as checkpointer:
         logger.info(f"MongoDBSaver 初始化成功，集合: {checkpoint_collection_name}")
-        
+
         # 从管理器获取预加载的 MCP 工具
         mcp_tools = await get_cached_mcp_tools()
         if not mcp_tools:
@@ -175,7 +198,7 @@ async def main_graph_execution(
             logger.info(f"  Name: {t.name}")
         logger.info("-" * 30)
         # 获取 LLM
-     
+
         # llm = get_llms(
         #     supplier="oneapi",
         #     model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用

@@ -7,8 +7,12 @@ from pydantic import BaseModel
 
 # 并行部署：同时支持两种 Agent 类型
 # from src.service.langgraph_agent import main_graph_execution  # 原 LangGraph 版本
-from src.service.langchain_agent import main_graph_execution as tool_calling_execution  # Tool Calling Agent
-from src.service.langchain_react_agent import main_graph_execution as react_execution  # ReAct Agent
+from src.service.langchain_agent import (
+    main_graph_execution as tool_calling_execution,  # Tool Calling Agent
+)
+from src.service.langchain_react_agent import (
+    main_graph_execution as react_execution,  # ReAct Agent
+)
 
 AgentRouter = APIRouter()
 
@@ -40,11 +44,12 @@ async def sse_event_formatter_agent(
         print("SSE event formatter for agent finished.")
 
 
+# 2025.09.08
 @AgentRouter.post("/tool-calling")
 async def query_tool_calling_agent(query_request: QueryRequest) -> StreamingResponse:
     """
     使用 Tool Calling Agent 处理查询请求并以流式方式返回响应。
-    
+
     Tool Calling Agent 特点：
     - 支持原生工具调用
     - 更简洁的对话模式
@@ -58,16 +63,16 @@ async def query_tool_calling_agent(query_request: QueryRequest) -> StreamingResp
         事件类型包括：chunk, tool_call, tool_result, stream_end, error
     """
     return StreamingResponse(
-        sse_event_formatter_agent(query_request, tool_calling_execution), 
-        media_type="text/event-stream"
+        sse_event_formatter_agent(query_request, tool_calling_execution),
+        media_type="text/event-stream",
     )
 
 
-@AgentRouter.post("/mcp")
+@AgentRouter.post("/react")
 async def query_react_agent(query_request: QueryRequest) -> StreamingResponse:
     """
     使用 ReAct Agent 处理查询请求并以流式方式返回响应。
-    
+
     ReAct Agent 特点：
     - 支持推理-行动模式（Reasoning and Acting）
     - 显示详细的思考过程
@@ -81,29 +86,29 @@ async def query_react_agent(query_request: QueryRequest) -> StreamingResponse:
         事件类型包括：thought, action, observation, tool_call, tool_result, chunk, stream_end, error
     """
     return StreamingResponse(
-        sse_event_formatter_agent(query_request, react_execution), 
-        media_type="text/event-stream"
+        sse_event_formatter_agent(query_request, react_execution),
+        media_type="text/event-stream",
     )
 
 
-# @AgentRouter.post("/mcp")  
-# async def query_mcp_stream(query_request: QueryRequest) -> StreamingResponse:
-#     """
-#     兼容性接口：默认使用 Tool Calling Agent 处理 MCP 查询请求。
-    
-#     注意：这是为了保持向后兼容性而保留的接口。
-#     建议使用具体的 /tool-calling 或 /react 端点。
+@AgentRouter.post("/mcp")
+async def query_mcp_stream(query_request: QueryRequest) -> StreamingResponse:
+    """
+    兼容性接口：默认使用 Tool Calling Agent 处理 MCP 查询请求。
 
-#     Args:
-#         query_request (QueryRequest): 包含用户查询和会话ID的请求体
+    注意：这是为了保持向后兼容性而保留的接口。
+    建议使用具体的 /tool-calling 或 /react 端点。
 
-#     Returns:
-#         StreamingResponse: 包含 SSE 事件的流式响应
-#     """
-#     return StreamingResponse(
-#         sse_event_formatter_agent(query_request, tool_calling_execution), 
-#         media_type="text/event-stream"
-#     )
+    Args:
+        query_request (QueryRequest): 包含用户查询和会话ID的请求体
+
+    Returns:
+        StreamingResponse: 包含 SSE 事件的流式响应
+    """
+    return StreamingResponse(
+        sse_event_formatter_agent(query_request, tool_calling_execution),
+        media_type="text/event-stream",
+    )
 
 
 # 保留旧的非流式接口作为参考或备用，如果需要的话

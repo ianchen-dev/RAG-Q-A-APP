@@ -33,12 +33,10 @@ def get_llms(
             )
         elif supplier == "volces":
             return BaseChatOpenAI(
-                model="deepseek-v3-250324",
+                model=os.getenv("VOLCES_MODEL"),
                 openai_api_key=os.getenv("VOLCES_API_KEY"),
                 openai_api_base="https://ark.cn-beijing.volces.com/api/v3/",
-                # streaming=True,
-                stream=True
-                # max_tokens=int(os.getenv("MAX_TOKENS")),
+                stream=True,
             )
 
         elif supplier == "ollama":

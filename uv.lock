@@ -5545,8 +5545,6 @@ agent = [
     { name = "fastapi-mcp" },
     { name = "langchain-mcp-adapters" },
     { name = "langchain-tavily" },
-    { name = "langgraph" },
-    { name = "langgraph-checkpoint-mongodb" },
 ]
 ai-full = [
     { name = "bert-score" },
@@ -5557,6 +5555,10 @@ dev = [
     { name = "deptry" },
     { name = "locust" },
     { name = "ruff" },
+]
+discard-agent = [
+    { name = "langgraph" },
+    { name = "langgraph-checkpoint-mongodb" },
 ]
 migration = [
     { name = "aerich" },
@@ -5611,8 +5613,6 @@ agent = [
     { name = "fastapi-mcp", specifier = ">=0.3.3" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langchain-tavily", specifier = ">=0.1.6" },
-    { name = "langgraph", specifier = ">=0.3.34" },
-    { name = "langgraph-checkpoint-mongodb", specifier = ">=0.2.0" },
 ]
 ai-full = [
     { name = "bert-score", specifier = ">=0.3.13" },
@@ -5623,6 +5623,10 @@ dev = [
     { name = "deptry", specifier = ">=0.23.0" },
     { name = "locust", specifier = ">=2.34.1" },
     { name = "ruff", specifier = ">=0.11.4" },
+]
+discard-agent = [
+    { name = "langgraph", specifier = ">=0.3.34" },
+    { name = "langgraph-checkpoint-mongodb", specifier = ">=0.2.0" },
 ]
 migration = [
     { name = "aerich", specifier = ">=0.8.2" },
