@@ -15,7 +15,6 @@ from src.service.ChatSev import ChatSev
 
 
 class SessionCreate(BaseModel):
-    title: str = "新会话"
     username: str = "root"
     assistant_id: str
     # 假设 assistant_name 也会传来，如果 session 模型需要的话
@@ -35,7 +34,6 @@ async def create_session(
         返回创建的文档对象。
     """
     session_doc: Session = Session(
-        title=session_data.title,
         username=session_data.username,
         assistant_id=session_data.assistant_id,
         # assistant_name=session_data.assistant_name, # 如果需要

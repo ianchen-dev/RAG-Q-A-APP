@@ -69,8 +69,8 @@ class DocumentChunker(BaseLoader):
     def __init__(
         self,
         file_path: str,
-        chunk_size: int = 400,
-        chunk_overlap: int = 20,
+        chunk_size: int = 500,
+        chunk_overlap: int = 25,
         splitter_type: str = "hybrid",  # 'recursive', 'semantic', 'markdown', 或 'hybrid'
         embeddings: Optional[Embeddings] = None,
     ) -> None:

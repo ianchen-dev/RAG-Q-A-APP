@@ -140,7 +140,6 @@ async def delete_assistant(assistant_id: str) -> dict:
 
 
 class SessionCreate(BaseModel):
-    title: str = "新会话"
     username: str = "root"
     assistant_id: str
     assistant_name: str = "Default Assistant"

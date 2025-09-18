@@ -1,0 +1,6 @@
+TAG=2025090v1
+
+$ docker login --username=aliyun7228596829 crpi-g0adc8mdcoka4w86.cn-shenzhen.personal.cr.aliyuncs.com
+$ docker pull crpi-g0adc8mdcoka4w86.cn-shenzhen.personal.cr.aliyuncs.com/sonetto/rag:[TAG]
+cd www/wwwroot/RAG
+docker-compose up -d

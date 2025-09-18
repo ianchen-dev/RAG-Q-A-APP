@@ -9,7 +9,6 @@ from typing import Union
 import redis.asyncio as aioredis  # 导入 aioredis
 from bson import ObjectId  # 用于验证 kb_id
 from fastapi import HTTPException, UploadFile
-from langchain_chroma import Chroma
 from langchain_core.tools import tool
 
 from src.config.Redis import get_redis_client  # 导入 get_redis_client
@@ -74,7 +73,7 @@ async def _delete_kb_cache(kb_id: Union[str, ObjectId]):
 async def load_all_knowledge_bases_to_cache():
     """从 MongoDB 加载所有 KnowledgeBase 文档并写入 Redis 缓存。"""
     try:
-        redis = get_redis_client()  # 确保 Redis 已连接
+        get_redis_client()  # 确保 Redis 已连接
         logger.info("开始从 MongoDB 加载知识库数据到 Redis 缓存...")
         kb_docs = await KnowledgeBaseModel.find_all().to_list()
         count = 0
@@ -177,7 +176,14 @@ async def process_uploaded_file(
             config.embedding_model,
             config.embedding_apikey,  # 使用配置中的 API Key
         )
-        knowledge_util = Knowledge(_embeddings=_embedding)
+        # 使用新的Knowledge类，可以指定向量数据库类型
+        knowledge_util = Knowledge(
+            _embeddings=_embedding,
+            vector_db_type=None,  # 使用配置文件中的默认类型
+            splitter="hybrid",  # 使用混合分割器
+            use_bm25=False,  # 可以根据需要启用BM25
+            use_reranker=False,  # 可以根据需要启用重排序
+        )
 
         # 6. 调用 Knowledge 类处理文件并存入 Chroma
         await knowledge_util.add_file_to_knowledge_base(
@@ -287,7 +293,7 @@ async def get_knowledge_list():
     """获取所有知识库列表，优先从 Redis 缓存读取。
     如果缓存为空，则从 MongoDB 加载并更新缓存。
     """
-    redis = get_redis_client()  # type: aioredis.Redis
+    redis = get_redis_client()
     knowledge_list_from_cache = []
     cached_kb_keys_bytes = [
         key async for key in redis.scan_iter(match=f"{KB_CACHE_PREFIX}*")
@@ -365,18 +371,36 @@ async def delete_knowledge_base(kb_id: str) -> None:
 
     logger.info(f"MongoDB 记录 '{kb_id}' 删除成功。")
 
-    # 2. 删除关联的 ChromaDB 目录
+    # 2. 删除关联的向量数据库集合
     kb_id_str = str(kb_id)
-    collection_path = os.path.join(chroma_dir, kb_id_str)
-    if os.path.isdir(collection_path):
-        try:
-            shutil.rmtree(collection_path)
-            logger.info(f"ChromaDB 目录 '{collection_path}' 删除成功。")
-        except OSError as e:
-            logger.error(f"删除 ChromaDB 目录 '{collection_path}' 时出错: {e}")
-            # 记录错误，但继续尝试删除缓存
-    else:
-        logger.info(f"ChromaDB 目录 '{collection_path}' 不存在或不是目录，无需删除。")
+    try:
+        # 使用新的Knowledge类删除整个集合
+        config = knowledge_base_doc.embedding_config
+        if config and config.embedding_supplier and config.embedding_model:
+            _embedding = get_embedding(
+                config.embedding_supplier,
+                config.embedding_model,
+                config.embedding_apikey,
+            )
+            knowledge_util = Knowledge(
+                _embeddings=_embedding,
+                vector_db_type=None,  # 使用配置文件中的默认类型
+            )
+
+            collection_deleted = await knowledge_util.delete_collection(kb_id_str)
+            if collection_deleted:
+                logger.info(f"向量数据库集合 '{kb_id_str}' 删除成功。")
+            else:
+                logger.warning(f"向量数据库集合 '{kb_id_str}' 删除失败或不存在。")
+
+            # 清理资源
+            await knowledge_util.close()
+        else:
+            logger.warning(f"知识库 {kb_id} 缺少嵌入配置，跳过向量数据库集合删除。")
+
+    except Exception as e:
+        logger.error(f"删除向量数据库集合 '{kb_id_str}' 时出错: {e}")
+        # 记录错误，但继续尝试删除缓存
 
     # 3. 删除 Redis 缓存
     await _delete_kb_cache(kb_id)
@@ -403,63 +427,52 @@ async def delete_file_from_knowledge_base(kb_id: str, file_md5: str) -> dict:
 
     # 4. 删除 ChromaDB 中的相关向量
     kb_id_str = str(kb_id)
-    persist_directory = os.path.join(chroma_dir, kb_id_str)
-    collection_exists = Knowledge.is_already_vector_database(kb_id_str)
 
-    chroma_deleted = False  # 标记 Chroma 是否尝试删除
+    # 使用新的Knowledge类架构
+    config = knowledge_base_doc.embedding_config
+    _embedding = get_embedding(
+        config.embedding_supplier,
+        config.embedding_model,
+        config.embedding_apikey,
+    )
+    knowledge_util = Knowledge(
+        _embeddings=_embedding,
+        vector_db_type=None,  # 使用配置文件中的默认类型
+    )
+
+    collection_exists = await knowledge_util.collection_exists(kb_id_str)
+
+    # 标记向量是否尝试删除 (移除未使用的变量)
     if collection_exists:
         logger.info(
-            f"准备从 ChromaDB 集合 '{kb_id_str}' 删除与 MD5 {file_md5} 相关的向量..."
+            f"准备从向量数据库集合 '{kb_id_str}' 删除与 MD5 {file_md5} 相关的向量..."
         )
         try:
-            # 需要一个 embedding 实例来加载 Chroma Store
-            # 从知识库文档中获取嵌入配置
-            if not knowledge_base_doc.embedding_config:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"知识库 {kb_id} 缺少嵌入配置 (embedding_config)。",
-                )
-            config = knowledge_base_doc.embedding_config
-            if not config.embedding_model or not config.embedding_supplier:
-                # 如果知识库记录中缺少嵌入信息，抛出错误
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"知识库 {kb_id} 缺少必要的嵌入配置信息 (supplier 或 model)。",
-                )
-
-            logger.info(
-                f"使用知识库 {kb_id} 的嵌入配置: supplier='{config.embedding_supplier}', model='{config.embedding_model}'"
-            )
-            _embedding = get_embedding(
-                config.embedding_supplier,
-                config.embedding_model,
-                config.embedding_apikey,  # 使用配置中的 API Key (如果需要的话)
-            )
-            vectorstore = Chroma(
-                collection_name=kb_id_str,
-                persist_directory=persist_directory,
-                embedding_function=_embedding,
+            # 使用新的Knowledge类删除文档
+            filter_dict = {"source_file_md5": file_md5}
+            deletion_success = await knowledge_util.delete_documents_by_filter(
+                kb_id_str, filter_dict
             )
 
-            # 执行删除 (同步操作)
-            # TODO: 考虑改为异步执行器 vectorstore.delete(where={"source_file_md5": file_md5})
-            logger.info(
-                f"执行 ChromaDB 删除操作 (同步), filter: {{'source_file_md5': '{file_md5}'}}"
-            )
-            # ChromaDB 的 delete 方法不返回删除的数量，无法直接判断效果
-            vectorstore.delete(where={"source_file_md5": file_md5})
-            logger.info(
-                f"ChromaDB 集合 '{kb_id_str}' 中与 MD5 {file_md5} 相关的向量已删除。"
-            )
-            chroma_deleted = True
+            if deletion_success:
+                logger.info(
+                    f"向量数据库集合 '{kb_id_str}' 中与 MD5 {file_md5} 相关的向量已删除。"
+                )
+            else:
+                logger.warning(
+                    f"从向量数据库集合 '{kb_id_str}' 删除 MD5 {file_md5} 的向量时未成功。"
+                )
         except Exception as e:
             logger.error(
-                f"从 ChromaDB 集合 '{kb_id_str}' 删除 MD5 {file_md5} 的向量时出错: {e}"
+                f"从向量数据库集合 '{kb_id_str}' 删除 MD5 {file_md5} 的向量时出错: {e}"
             )
             # 抛出异常，因为删除不完整
-            raise HTTPException(status_code=500, detail=f"删除 Chroma 向量时出错: {e}")
+            raise HTTPException(status_code=500, detail=f"删除向量时出错: {e}")
+        finally:
+            # 清理Knowledge实例资源
+            await knowledge_util.close()
     else:
-        logger.info(f"ChromaDB 集合 '{kb_id_str}' 不存在，无需删除向量。")
+        logger.info(f"向量数据库集合 '{kb_id_str}' 不存在，无需删除向量。")
 
     # 更新 Redis 缓存 (无论 Chroma 是否删除，只要 MongoDB 更新了就要更新缓存)
     # 重新获取最新文档来更新缓存
