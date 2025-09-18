@@ -67,8 +67,8 @@ else:
 # --- checkpoint 持久化 ---
 from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver  # MongoDB 检查点器
 
-from src.config.Beanie import (  # 从 Beanie 获取客户端和数据库实例
-    get_motor_db,
+from src.config.database_manager import (  # 从数据库管理器获取数据库实例
+    get_database_manager,
 )
 
 
@@ -96,7 +96,8 @@ async def main_graph_execution(
 
     # --- 获取 MongoDB 连接信息并准备 MongoDBSaver ---
     try:
-        motor_database_instance = get_motor_db()
+        manager = await get_database_manager()
+        motor_database_instance = await manager.get_mongodb_database()
         db_name = motor_database_instance.name
         logger.info(f"成功获取 MongoDB 数据库实例: {db_name}")
     except RuntimeError as e:

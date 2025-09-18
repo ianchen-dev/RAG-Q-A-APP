@@ -31,7 +31,7 @@ from langchain_mongodb.chat_message_histories import (
 )
 
 # Redis 缓存
-from src.config.Redis import get_redis_client
+from src.config.database_manager import get_database_manager
 
 # Beanie模型
 from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
@@ -155,7 +155,8 @@ class ChatSev:
             # 尝试从 Redis 缓存获取知识库元数据-展示上下文信息
             try:
                 if ObjectId.is_valid(knowledge_base_id):
-                    redis = get_redis_client()
+                    manager = await get_database_manager()
+                    redis = await manager.get_redis_client()
                     cache_key = f"{KB_CACHE_PREFIX}{knowledge_base_id}"
                     cached_data_str = await redis.get(cache_key)
                     if cached_data_str:

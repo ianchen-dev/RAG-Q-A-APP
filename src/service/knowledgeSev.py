@@ -11,7 +11,7 @@ from bson import ObjectId  # 用于验证 kb_id
 from fastapi import HTTPException, UploadFile
 from langchain_core.tools import tool
 
-from src.config.Redis import get_redis_client  # 导入 get_redis_client
+from src.config.database_manager import get_database_manager  # 导入数据库管理器
 from src.models.knowledgeBase import (
     KnowledgeBase as KnowledgeBaseModel,
 )
@@ -32,7 +32,8 @@ async def _set_kb_cache(kb_doc: KnowledgeBaseModel):
     if not kb_doc or not kb_doc.id:
         return
     try:
-        redis = get_redis_client()
+        manager = await get_database_manager()
+        redis = await manager.get_redis_client()
         kb_id_str = str(kb_doc.id)
         cache_key = f"{KB_CACHE_PREFIX}{kb_id_str}"
         # 将 Beanie 文档转换为字典，然后序列化为 JSON
@@ -55,7 +56,8 @@ async def _set_kb_cache(kb_doc: KnowledgeBaseModel):
 async def _delete_kb_cache(kb_id: Union[str, ObjectId]):
     """从 Redis 缓存中删除指定的 KnowledgeBase"""
     try:
-        redis = get_redis_client()
+        manager = await get_database_manager()
+        redis = await manager.get_redis_client()
         kb_id_str = str(kb_id)
         cache_key = f"{KB_CACHE_PREFIX}{kb_id_str}"
         deleted_count = await redis.delete(cache_key)
@@ -73,7 +75,8 @@ async def _delete_kb_cache(kb_id: Union[str, ObjectId]):
 async def load_all_knowledge_bases_to_cache():
     """从 MongoDB 加载所有 KnowledgeBase 文档并写入 Redis 缓存。"""
     try:
-        get_redis_client()  # 确保 Redis 已连接
+        manager = await get_database_manager()
+        await manager.get_redis_client()  # 确保 Redis 已连接
         logger.info("开始从 MongoDB 加载知识库数据到 Redis 缓存...")
         kb_docs = await KnowledgeBaseModel.find_all().to_list()
         count = 0
@@ -293,7 +296,8 @@ async def get_knowledge_list():
     """获取所有知识库列表，优先从 Redis 缓存读取。
     如果缓存为空，则从 MongoDB 加载并更新缓存。
     """
-    redis = get_redis_client()
+    manager = await get_database_manager()
+    redis = await manager.get_redis_client()
     knowledge_list_from_cache = []
     cached_kb_keys_bytes = [
         key async for key in redis.scan_iter(match=f"{KB_CACHE_PREFIX}*")
