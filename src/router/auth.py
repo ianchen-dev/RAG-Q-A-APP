@@ -49,8 +49,6 @@ async def login_for_access_token(
         "email": user.email,
         # 确保将 ObjectId 转换为字符串以便序列化到 JWT 中
         "userId": str(user.id),
-        # 你可以添加其他需要的信息，如角色、权限等
-        # "scopes": form_data.scopes, # 如果你需要处理 scopes
     }
     access_token = create_access_token(
         data=user_data_for_token, expires_delta=access_token_expires

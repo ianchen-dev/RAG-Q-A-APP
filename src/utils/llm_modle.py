@@ -15,19 +15,28 @@ def get_llms(
     api_key: str = None,
     max_length: int = 10,
     temperature: float = 0.8,
+    streaming: bool = True,
 ):
     try:
         """
         获取LLM模型
         """
         if supplier == "openai":
-            return ChatOpenAI(model=model, temperature=temperature)
+            return ChatOpenAI(model=model, temperature=temperature, streaming=streaming)
         elif supplier == "siliconflow":
             return BaseChatOpenAI(
-                model=os.getenv("SILICONFLOW_MODEL"),  # 使用DeepSeek聊天模型
+                # model=os.getenv("SILICONFLOW_MODEL"),
+                model="deepseek-ai/DeepSeek-V3",  #
                 openai_api_key=os.getenv("SILICONFLOW_API_KEY"),
-                openai_api_base=os.getenv("SILICONFLOW_URL"),
-                # max_tokens=int(os.getenv("MAX_TOKENS")),
+                openai_api_base="https://api.siliconflow.cn/v1",
+                streaming=streaming,
+            )
+        elif supplier == "volces":
+            return BaseChatOpenAI(
+                model=os.getenv("VOLCES_MODEL"),
+                openai_api_key=os.getenv("VOLCES_API_KEY"),
+                openai_api_base="https://ark.cn-beijing.volces.com/api/v3/",
+                stream=True,
             )
 
         elif supplier == "ollama":
@@ -38,6 +47,7 @@ def get_llms(
                 base_url=ONEAPI_BASE_URL,
                 model=model,
                 temperature=temperature,
+                streaming=streaming,
             )
         else:
             raise ValueError(f"Unsupported supplier: {supplier}")

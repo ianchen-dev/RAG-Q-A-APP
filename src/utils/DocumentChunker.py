@@ -69,8 +69,8 @@ class DocumentChunker(BaseLoader):
     def __init__(
         self,
         file_path: str,
-        chunk_size: int = 400,
-        chunk_overlap: int = 20,
+        chunk_size: int = 500,
+        chunk_overlap: int = 25,
         splitter_type: str = "hybrid",  # 'recursive', 'semantic', 'markdown', 或 'hybrid'
         embeddings: Optional[Embeddings] = None,
     ) -> None:
@@ -160,7 +160,7 @@ class DocumentChunker(BaseLoader):
         if not LANGCHAIN_EXPERIMENTAL_AVAILABLE:
             raise ImportError(
                 "无法使用 'semantic' 分割器，因为 langchain_experimental 未安装。"
-                "请运行 'pdm add langchain_experimental' 或 'pip install langchain_experimental'."
+                "请运行 'uv add langchain_experimental' 或 'pip install langchain_experimental'."
             )
         if self.embeddings is None:
             raise ValueError("必须为 'semantic' 分割器提供 embeddings 参数。")
@@ -268,7 +268,7 @@ class DocumentChunker(BaseLoader):
 #     #     print(f"Recursive 测试失败: {e}")
 #
 #     # 示例: 使用 SemanticChunker (需要提供 embedding 函数和可能的依赖)
-#     # 需要先安装: pdm add langchain_experimental sentence-transformers bert_score
+#     # 需要先安装: uv add langchain_experimental sentence-transformers bert_score
 #     # try:
 #     #     from langchain_community.embeddings import HuggingFaceEmbeddings
 #     #     # 替换为你实际使用的 embedding 模型路径或名称

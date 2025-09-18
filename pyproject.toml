@@ -1,55 +1,154 @@
 [project]
 name = "test"
 version = "0.1.0"
-description = "Default template for PDM package"
+description = "RAG知识库问答系统 - 基于LangChain、FastAPI、Chroma和MongoDB构建"
 authors = [
     {name = "hbchen", email = "hbchen7@126.com"},
 ]
-dependencies = ["fastapi>=0.115.12", "uvicorn>=0.34.0", "python-multipart>=0.0.20", "python-dotenv>=1.1.0", "tortoise-orm>=0.24.2", "asyncpg>=0.30.0", "aerich>=0.8.2", "tomlkit>=0.13.2", "aiomysql>=0.2.0", "motor>=3.7.0", "langchain>=0.3.21", "langserve[all]>=0.3.1", "langchain-community>=0.3.20", "pypdf>=5.4.0", "langchain-chroma>=0.2.2", "langchain-openai>=0.3.12", "langchain-ollama>=0.3.0", "autopep8>=2.3.2", "unstructured[docx]>=0.17.2", "python-jose[cryptography]>=3.4.0", "passlib[bcrypt]>=1.7.4", "beanie>=1.29.0", "langchain-mongodb>=0.6.0", "markdown>=3.8", "nltk>=3.9.1", "python-docx>=1.1.2", "langchain-experimental>=0.3.4", "sentence-transformers>=4.1.0", "bert-score>=0.3.13", "langchain-mcp-adapters>=0.0.9", "langgraph>=0.3.34", "fastapi-mcp>=0.3.3", "redis>=5.2.1", "huggingface-hub>=0.30.2", "aiohttp>=3.11.18"]
+
+# 核心依赖 - 运行时必需
+dependencies = [
+    # Web 框架
+    "fastapi>=0.115.12",
+    "uvicorn>=0.34.0",
+    "python-multipart>=0.0.20",
+    "starlette",
+    "pydantic",
+    
+    # 配置和环境
+    "python-dotenv>=1.1.0",
+    
+    # 数据库相关
+    "motor>=3.7.0",
+    "beanie>=1.29.0",
+    "pymongo",
+    "redis>=5.2.1",
+    
+    # LangChain 核心
+    "langchain>=0.3.21",
+    "langchain-core",
+    "langchain-community>=0.3.20",
+    "langchain-chroma>=0.2.2",
+    "langchain-openai>=0.3.12",
+    "langchain-ollama>=0.3.0",
+    "langchain-mongodb>=0.6.0",
+    "langchain-text-splitters",
+    
+    # 文档处理 - 基础版本
+    "pypdf>=5.4.0",
+    "python-docx>=1.1.2",
+    "markdown>=3.8",
+    "unstructured[docx]>=0.17.2",      # 高级文档处理
+    
+    # 安全相关
+    "python-jose[cryptography]>=3.4.0",
+    "passlib[bcrypt]>=1.7.4",
+    
+    # HTTP 客户端
+    "httpx",
+    "aiohttp>=3.11.18",
+    
+    # 搜索相关
+    "rank-bm25>=0.2.2",
+]
+
 requires-python = ">=3.10"
-readme = "README.md"
 license = {text = "MIT"}
 
-[build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+# 可选依赖组 - 按功能分组
+[dependency-groups]
+# 开发依赖
+dev = [
+    "ruff>=0.11.4",
+    "locust>=2.34.1",
+    "deptry>=0.23.0",
+   
+]
+# 测试
+test = [
+     "pytest>=8.4.2",
+     "pytest-asyncio>=0.24.0",  # 支持异步测试
+]
 
+# AI/ML 功能 - 可选安装
+ai-full = [
+    "sentence-transformers>=4.1.0",    # 大模型，约 2GB - 仅在需要时安装
+    "bert-score>=0.3.13",              # BERT 相关，约 1GB - 仅在需要时安装
+    "nltk>=3.9.1",
+]
+
+# 文档分块-语义分割功能 - 可选安装
+semantic = [
+    "langchain-experimental>=0.3.4",   # SemanticChunker 需要
+]
+
+# Agent 功能 - 可选安装
+agent = [
+    "langchain-mcp-adapters>=0.1.0",
+    "fastapi-mcp>=0.3.3",
+    "langchain-tavily>=0.1.6",
+]
+#  弃用langgraph
+discard-agent = [
+    "langgraph>=0.3.34",
+    "langgraph-checkpoint-mongodb>=0.2.0",
+
+]
+
+# 数据库迁移 - 开发时使用
+migration = [
+    "tortoise-orm>=0.24.2",
+    "asyncpg>=0.30.0",
+    "aerich>=0.8.2",
+    "tomlkit>=0.13.2",
+]
+
+# LangServe - 如果需要服务化
+serve = [
+    "langserve[all]>=0.3.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [tool.aerich]
 tortoise_orm = "settings.PostgreSQLConfig"
 location = "./migrations"
 src_folder = "./."
 
-[tool.pdm]
-distribution = true
-
-[dependency-groups]
-dev = [
-    "ruff>=0.11.4",
-    "locust>=2.34.1",
-    "deptry>=0.23.0",
-]
+[[tool.uv.index]]
+name = "tsinghua"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 
 [tool.ruff]
-# 启用 Flake8 的所有规则 (F 代码) 和 isort 的规则 (I 代码)
-# 你可以根据需要添加或删除规则代码: https://docs.astral.sh/ruff/rules/
 select = ["F", "I"]
-line-length = 88  # 设置每行最大长度
-
-# 忽略特定规则 (如果需要)
-# ignore = ["F401"] # 例如，忽略 "未使用导入"
-
-# 设置目标 Python 版本，这有助于 Ruff 应用特定版本的规则
-target-version = "py310"  # 根据你的 requires-python = ">=3.10" 设置
+line-length = 88
+target-version = "py310"
 
 [tool.ruff.format]
-# 如果你想使用 Black 兼容的格式化风格（推荐）
-quote-style = "double"  # 使用双引号
-indent-style = "space"  # 使用空格缩进
-skip-magic-trailing-comma = false  # 保持与 Black 一致的尾随逗号处理
-line-ending = "auto"  # 自动处理换行符
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
-# 配置 Ruff 的 import 排序功能 (类似 isort)
 [tool.ruff.lint.isort]
-# 如果你的项目有 src 目录，将它添加到已知的第一方包路径中
-known-first-party = ["src"]  # 取消注释并根据你的项目结构调整
+known-first-party = ["src"]
+
+[tool.deptry.per_rule_ignores]
+DEP001 = ["src"]
+DEP002 = [
+    "python-multipart",
+    "tortoise-orm",
+    "asyncpg",
+    "aerich",
+    "tomlkit",
+    "pypdf",
+    "markdown",
+    "python-docx",
+    "aiohttp",
+    "rank-bm25",
+]

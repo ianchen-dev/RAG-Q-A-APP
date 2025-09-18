@@ -1,25 +1,102 @@
-
-doc/
-README.md
-.specstory/
-
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.venv
-.pytest_cache
-.pdm-python
-
-pdm.lock
-pyproject.toml
-
+# Git 相关
 .git
 .gitignore
-.dockerignore
+.gitattributes
 
-.cursor/
-.cursorrules
-.cursorindexingignore
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-   
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv/
+
+# IDE 相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 测试相关
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# 文档
+*.md
+doc/
+docs/
+README*
+
+# 开发文件
+.env
+.env.*
+!.env.prod
+
+# Docker 相关
+Dockerfile*
+docker-compose*.yml
+compose.yml
+
+# 数据文件（避免复制大文件）
+chroma/
+*.db
+*.sqlite3
+
+# 临时文件
+tmp/
+temp/
+.tmp/
+
+# Node.js 相关（如果有前端部分）
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 项目特定
+test/
+langgraph_test/
+Makefile
+
+# 排除特定的 txt 文件，但保留 requirements.txt
+doc/*.txt
+*.log.txt
+# 注意：不要排除 requirements.txt

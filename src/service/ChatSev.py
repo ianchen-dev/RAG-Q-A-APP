@@ -31,7 +31,7 @@ from langchain_mongodb.chat_message_histories import (
 )
 
 # Redis 缓存
-from src.config.Redis import get_redis_client
+from src.config.database_manager import get_database_manager
 
 # Beanie模型
 from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
@@ -88,8 +88,8 @@ class ChatSev:
 
         # 知识库prompt--system
         knowledge_system_prompt = (
-            f"{ai_info} 【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果检索到的上下文中没有问题的答案，请你直接回答不知道。检索到的上下文如下：\n\n"
-            "{context}】"
+            f"{ai_info} 【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果检索到的上下文中没有问题的答案，请你回答:'根据检索到的上下文，我无法准确回答这个问题'。检索到的上下文如下：\n\n"
+            "{context}"
         )
 
         self.knowledge_prompt = ChatPromptTemplate.from_messages(  # 知识库prompt
@@ -125,13 +125,18 @@ class ChatSev:
         supplier: str,
         model: str,
         knowledge_base_id: Optional[str],
-        filter_by_file_md5: Optional[str],
+        filter_by_file_md5: Optional[list[str]],
         search_k: int,
         max_length: Optional[int],
         temperature: float,
-    ) -> Tuple[str, RunnableSerializable]:
-        """辅助函数：确定上下文显示名称和基础链。优先从 Redis 读取知识库元数据。"""
+    ) -> Tuple[str, RunnableSerializable, bool]:
+        """辅助函数：确定上下文显示名称、基础链以及输出是否为字典以供历史记录使用。
+
+        Returns:
+            Tuple[str, RunnableSerializable, bool]: (上下文名称, 基础链, 是否为字典输出)
+        """
         context_display_name = "标准对话"
+        is_dict_output_for_history = False
         chat = get_llms(
             supplier=supplier,
             model=model,
@@ -147,10 +152,11 @@ class ChatSev:
             )
             kb_data = None  # 存储从缓存或 DB 获取的知识库数据
 
-            # 尝试从 Redis 缓存获取
+            # 尝试从 Redis 缓存获取知识库元数据-展示上下文信息
             try:
                 if ObjectId.is_valid(knowledge_base_id):
-                    redis = get_redis_client()
+                    manager = await get_database_manager()
+                    redis = await manager.get_redis_client()
                     cache_key = f"{KB_CACHE_PREFIX}{knowledge_base_id}"
                     cached_data_str = await redis.get(cache_key)
                     if cached_data_str:
@@ -238,10 +244,10 @@ class ChatSev:
             if kb_data:  # 只有成功获取到数据才尝试创建 RAG 链
                 filter_dict = None
                 if filter_by_file_md5:
-                    filter_dict = {"source_file_md5": str(filter_by_file_md5)}
+                    filter_dict = {"source_file_md5": {"$in": filter_by_file_md5}}
 
                 try:
-                    retriever = self.knowledge.get_retriever_for_knowledge_base(
+                    retriever = await self.knowledge.get_retriever_for_knowledge_base(
                         kb_id=knowledge_base_id,
                         filter_dict=filter_dict,
                         search_k=search_k,
@@ -253,55 +259,36 @@ class ChatSev:
                         retriever, question_answer_chain
                     )
                     logging.info("RAG 链创建成功。")
+                    is_dict_output_for_history = True
                 except FileNotFoundError as e:
                     logging.warning(
                         f"无法加载知识库向量存储 {knowledge_base_id} (可能不存在或无法访问): {e}。将退回到普通聊天模式。"
                     )
-
-                    def wrap_normal_output(message: BaseMessage) -> Dict[str, Any]:
-                        return {"answer": message}
-
-                    base_chain = (
-                        self.normal_prompt | chat | RunnableLambda(wrap_normal_output)
-                    )
-                    context_display_name = "标准对话 (知识库向量错误)"  # 更新上下文
+                    base_chain = self.normal_prompt | chat
+                    context_display_name = "标准对话 (知识库向量错误)"
+                    is_dict_output_for_history = False
                 except Exception as e:
                     logging.error(
                         f"获取知识库检索器或创建 RAG 链时出错 ({knowledge_base_id}): {e}",
                         exc_info=True,
                     )
-
-                    def wrap_normal_output(message: BaseMessage) -> Dict[str, Any]:
-                        return {"answer": message}
-
-                    base_chain = (
-                        self.normal_prompt | chat | RunnableLambda(wrap_normal_output)
-                    )
-                    context_display_name = "标准对话 (知识库错误)"  # 更新上下文
+                    base_chain = self.normal_prompt | chat
+                    context_display_name = "标准对话 (知识库错误)"
+                    is_dict_output_for_history = False
             else:
                 # 如果 kb_data 获取失败，直接使用普通链
                 logging.warning(
                     f"由于无法获取知识库 {knowledge_base_id} 数据，将使用普通聊天模式。"
                 )
-
-                def wrap_normal_output(message: BaseMessage) -> Dict[str, Any]:
-                    return {"answer": message}
-
-                base_chain = (
-                    self.normal_prompt | chat | RunnableLambda(wrap_normal_output)
-                )
-                # context_display_name 已在上面设置为错误状态
+                base_chain = self.normal_prompt | chat
+                is_dict_output_for_history = False
 
         else:  # 不使用知识库的情况
             logging.info("不使用知识库，使用普通聊天模式。")
+            base_chain = self.normal_prompt | chat
+            is_dict_output_for_history = False
 
-            def wrap_normal_output(message: BaseMessage) -> Dict[str, Any]:
-                return {"answer": message}
-
-            base_chain = self.normal_prompt | chat | RunnableLambda(wrap_normal_output)
-            # context_display_name 默认为 "标准对话"
-
-        return context_display_name, base_chain
+        return context_display_name, base_chain, is_dict_output_for_history
 
     # f-流式输出
     async def stream_chat(
@@ -327,6 +314,7 @@ class ChatSev:
             (
                 context_display_name,
                 base_chain,
+                is_dict_output_for_history,
             ) = await self._determine_context_and_base_chain(
                 api_key,
                 supplier,
@@ -339,16 +327,29 @@ class ChatSev:
             )
 
             # 1.f-流式输出-发送上下文信息作为流的第一个元素
-            yield {"type": "context", "data": context_display_name}
+            # yield {"type": "context", "data": context_display_name}
 
             # 2.f-历史会话-包装历史记录管理
             # RunnableWithMessageHistory 会自动处理输入和历史消息，并将 base_chain 的输出传递出去
+            history_output_key = "answer" if is_dict_output_for_history else None
+            if history_output_key == "answer":
+                yield {
+                    "type": "tool_call",
+                    "data": {
+                        "name": "知识库检索",
+                        "args": context_display_name,
+                        "id": knowledge_base_id,
+                    },
+                }
+            else:
+                yield {"type": "context", "data": context_display_name}  # 普通对话
+
             chain_with_history = RunnableWithMessageHistory(
                 base_chain,
                 self.get_session_chat_history,  # f-历史会话-获取会话历史-MongoDBChatMessageHistory
                 input_messages_key="input",  # base_chain 需要 'input'
                 history_messages_key="chat_history",  # prompt 需要 'chat_history'
-                output_messages_key="answer",  # 指定从 base_chain 输出字典中提取 'answer' 作为 AI 消息保存
+                output_messages_key=history_output_key,  # <--- 使用动态键
                 history_factory_config=[
                     ConfigurableFieldSpec(
                         id="session_id",
@@ -374,6 +375,7 @@ class ChatSev:
             # 4. f-流式输出-处理流式块
             async for chunk in stream_iterator:
                 content_piece = ""  # 返回的内容块
+                context_part = ""  # 返回的上下文块
                 # --- 核心处理逻辑 ---
                 # 根据chunk类型判断链的类型，进而得知其对应的输出数据结构，解析到content_piece
                 if isinstance(
@@ -400,10 +402,87 @@ class ChatSev:
                             logging.debug(
                                 f"流中 'answer' 字段的非预期类型: {type(answer_part)}"
                             )
-                    # 可以选择性地输出 context 信息 (备用-如果需要)
-                    # elif 'context' in chunk:
-                    #     # 处理 context 块，例如发送 'type': 'context_docs'
-                    #     pass
+                    #
+                    elif "context" in chunk:
+                        # 处理 context 块，例如发送 'type': 'context_docs'
+                        context_part = chunk["context"]
+                        # logging.info(f"流中接收到原始上下文块: {context_part}") # 可以取消注释此行以调试原始数据
+
+                        processed_context = []
+                        if isinstance(context_part, list):
+                            for doc in context_part:
+                                try:
+                                    # 使用 model_dump() 获取字典表示，而不是 model_dump_json()
+                                    # exclude_none=True 可以使输出更简洁，不包含值为 None 的字段
+                                    doc_dict = doc.model_dump(exclude_none=True)
+                                    processed_context.append(doc_dict)
+                                except AttributeError as e:
+                                    # 如果 Document 对象没有 model_dump 方法 (例如，如果它不是 Pydantic 模型)
+                                    # 或者发生其他与序列化相关的错误，则记录警告并尝试回退
+                                    logging.warning(
+                                        f"尝试对 Document 对象调用 model_dump() 时出错: {e}. 文档内容: {doc}. 将尝试手动提取。"
+                                    )
+                                    if hasattr(doc, "page_content") and hasattr(
+                                        doc, "metadata"
+                                    ):
+                                        processed_context.append(
+                                            {
+                                                "page_content": doc.page_content,
+                                                "metadata": doc.metadata,
+                                            }
+                                        )
+                                    else:
+                                        processed_context.append(
+                                            {
+                                                "error": "Invalid document structure for fallback",
+                                                "original_doc": str(doc),
+                                            }
+                                        )
+                                except Exception as e:
+                                    logging.error(
+                                        f"序列化 Document 对象时发生未知错误: {e}. 文档内容: {doc}"
+                                    )
+                                    processed_context.append(
+                                        {
+                                            "error": "Unknown serialization error",
+                                            "original_doc": str(doc),
+                                        }
+                                    )
+                        else:
+                            logging.warning(
+                                f"context_part is not a list as expected: {context_part}"
+                            )
+                            # 根据需要，可以决定在这种情况下 processed_context 应该是什么
+                            # 例如，如果 context_part 本身就是单个字典，可以直接添加，或者包装在列表中
+                            if isinstance(
+                                context_part, dict
+                            ):  # 简单处理 context_part 是单个字典的情况
+                                processed_context.append(context_part)
+                            else:
+                                processed_context.append(
+                                    {
+                                        "error": "Context is not a list",
+                                        "original_context": str(context_part),
+                                    }
+                                )
+
+                        # 将 processed_context (字典列表) 转换为格式化的 JSON 字符串
+                        content_json_str = json.dumps(
+                            processed_context, indent=2, ensure_ascii=False
+                        )
+                        logging.info(
+                            f"发送给前端的格式化上下文JSON: {content_json_str}"
+                        )
+
+                        yield {
+                            "type": "tool_result",
+                            "data": {
+                                "name": "知识库检索",
+                                "tool_call_id": knowledge_base_id,
+                                "content": content_json_str,
+                            },
+                        }
+
                     else:
                         logging.debug(f"流中接收到未处理的字典块: {chunk.keys()}")
                 elif isinstance(chunk, str):  # 兼容直接输出字符串的 Runnable
@@ -445,7 +524,11 @@ class ChatSev:
         异步执行聊天调用，并一次性返回结果。
         """
         logging.warning("调用了旧版 invoke 方法，考虑切换到 stream_chat。")
-        context_display_name, base_chain = await self._determine_context_and_base_chain(
+        (
+            context_display_name,
+            base_chain,
+            is_dict_output_for_history,
+        ) = await self._determine_context_and_base_chain(
             api_key,
             supplier,
             model,
@@ -462,7 +545,6 @@ class ChatSev:
 
         # 这里需要一个转换器，确保最终输出是期望的字典格式，或者调整后续处理逻辑
         # 例如，如果 base_chain 是普通链，需要包装输出
-        from langchain_core.runnables import RunnableLambda
 
         def format_output(input_data: Union[BaseMessage, Dict]) -> Dict[str, Any]:
             if isinstance(input_data, BaseMessage):

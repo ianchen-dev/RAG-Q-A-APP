@@ -5,7 +5,7 @@ from beanie import Document, Indexed
 
 
 class Session(Document):
-    title: str = "新会话"  # 会话标题
+    title: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 会话标题
     username: Annotated[str, Indexed]  # 用户名
     assistant_id: str  # 助手ID
     created_at: datetime = datetime.now()  # 创建时间

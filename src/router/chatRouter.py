@@ -27,10 +27,10 @@ class RerankerConfig(BaseModel):
 
     use_reranker: bool = Field(default=False, description="是否启用重排序")
     reranker_type: Literal["local", "remote"] = Field(
-        default="local",
+        default="remote",
         description="重排序器类型: 'local' (本地CrossEncoder) 或 'remote' (SiliconFlow API)",
     )
-    # 本地模型路径可以在 Knowledge 类中保持默认，或在这里覆盖（暂不提供覆盖）
+
     remote_rerank_config: Optional[Dict[str, Any]] = Field(
         default=None,
         description="远程 Reranker (SiliconFlow) 配置，当 reranker_type='remote' 时需要。至少包含 'api_key' 和可选的 'model'。 例如: {'api_key': 'your_sf_key', 'model': 'BAAI/bge-reranker-v2-m3'}",
@@ -40,10 +40,17 @@ class RerankerConfig(BaseModel):
 
 class KnowledgeConfig(BaseModel):
     knowledge_base_id: str
-    filter_by_file_md5: Optional[str] = None
+    filter_by_file_md5: Optional[list[str]] = Field(
+        default=None,
+        description="文件MD5，用于指定检索的若干个文档，如果为None，则检索所选知识库中的全部文件",
+    )
     search_k: Optional[int] = Field(
         default=10, ge=1, description="基础检索器返回的文档数量 (应 >= rerank_top_n)"
     )
+    # --- BM25 相关配置 ---
+    use_bm25: bool = Field(default=False, description="是否启用 BM25 混合检索")
+    bm25_k: int = Field(default=3, ge=1, description="BM25 检索器返回的文档数量")
+    # --- 重排序器配置 ---
     reranker_config: RerankerConfig = Field(
         default_factory=RerankerConfig, description="重排序器配置"
     )
@@ -66,18 +73,23 @@ async def get_chat_service(request: ChatRequest) -> ChatSev:
     """Dependency function to create ChatSev instance based on request config."""
     knowledge_instance: Optional[Knowledge] = None
     if request.knowledge_config:
+        knowledge_cfg = request.knowledge_config
         try:
-            kb = await KnowledgeBase.get(request.knowledge_config.knowledge_base_id)
+            kb = await KnowledgeBase.get(knowledge_cfg.knowledge_base_id)
             if kb.embedding_config:
                 _embedding = get_embedding(
                     kb.embedding_config.embedding_supplier,
                     kb.embedding_config.embedding_model,
                     kb.embedding_config.embedding_apikey,
                 )
-                reranker_cfg = request.knowledge_config.reranker_config
+                reranker_cfg = knowledge_cfg.reranker_config
                 knowledge_instance = Knowledge(
                     _embeddings=_embedding,
                     splitter="hybrid",
+                    # --- BM25 参数 ---
+                    use_bm25=knowledge_cfg.use_bm25,
+                    bm25_k=knowledge_cfg.bm25_k,
+                    # --- Reranker 参数 ---
                     use_reranker=reranker_cfg.use_reranker,
                     reranker_type=reranker_cfg.reranker_type,
                     remote_rerank_config=reranker_cfg.remote_rerank_config,
@@ -85,7 +97,7 @@ async def get_chat_service(request: ChatRequest) -> ChatSev:
                 )
             else:
                 logging.warning(
-                    f"未找到知识库 {request.knowledge_config.knowledge_base_id} 或其 embedding 配置。将不初始化 Knowledge 工具。"
+                    f"未找到知识库 {knowledge_cfg.knowledge_base_id} 或其 embedding 配置。将不初始化 Knowledge 工具。"
                 )
         except Exception as e:
             logging.error(
@@ -127,7 +139,6 @@ async def stream_response_generator(chat_sev: ChatSev, request_data: ChatRequest
             max_length=None,
             temperature=request_data.llm_config.temperature,
         ):
-            event_type = chunk_dict.get("type", "message")
             yield f"data: {json.dumps(chunk_dict)}\n\n"
             logging.debug(
                 f"Sent chunk: {chunk_dict['type']} for session {request_data.session_id}"

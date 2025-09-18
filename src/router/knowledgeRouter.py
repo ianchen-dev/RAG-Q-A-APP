@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 import src.service.knowledgeSev as knowledgeSev
@@ -35,16 +35,13 @@ async def create_knowledge(
         raise HTTPException(status_code=500, detail=f"创建知识库失败: {e}")
 
 
-# 修改上传文件接口，移除 embedding 相关的 Form 参数
 @knowledgeRouter.post("/{kb_id}/files/", summary="上传文件到知识库")
 async def upload_file_to_knowledge_base(
     kb_id: str,
     file: UploadFile = File(...),
-    # 移除 embedding_supplier, embedding_model, embedding_api_key
     # embedding_supplier: str = Form(...),
     # embedding_model: str = Form(...),
     # embedding_api_key: Optional[str] = Form(None),
-    is_reorder: bool = Form(False),  # is_reorder 仍然需要
 ):
     """
     上传单个文件到指定的知识库 (kb_id)。
@@ -56,10 +53,9 @@ async def upload_file_to_knowledge_base(
         result = await knowledgeSev.process_uploaded_file(
             kb_id=kb_id,
             file=file,
-            # embedding_supplier=embedding_supplier, # 移除
-            # embedding_model=embedding_model, # 移除
-            # embedding_api_key=embedding_api_key, # 移除
-            # is_reorder=is_reorder,
+            # embedding_supplier=embedding_supplier,
+            # embedding_model=embedding_model,
+            # embedding_api_key=embedding_api_key,
         )
         return result
     except FileNotFoundError as e:
