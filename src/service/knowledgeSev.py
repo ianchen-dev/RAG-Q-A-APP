@@ -102,8 +102,6 @@ async def create_knowledge(knowledge_base_data, current_user) -> KnowledgeBaseMo
         tag=knowledge_base_data.tag,
         description=knowledge_base_data.description,
         creator=current_user.username,
-        # 直接将 Pydantic 模型转换为字典或 Beanie 能处理的对象
-        # Beanie 通常可以直接处理 Pydantic 模型
         embedding_config=embedding_config_data,  # 传递 EmbeddingConfig 实例
         filesList=[],  # 初始化为空列表
     )

@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  app: # 定义你的 FastAPI 应用服务
+    build: . # 指示 Docker Compose 使用当前目录下的 Dockerfile 来构建镜像
+    container_name: fastapi_app # 为容器指定一个易于识别的名称（可选）
+    env_file:
+      - .env # 将 .env 文件中的环境变量加载到容器中
+    ports:
+      # 将宿主机的 8080 端口映射到容器的 8080 端口
+      # 左边是宿主机端口，右边是容器端口 (与 Dockerfile 中 EXPOSE 的一致)
+      - "8080:8080"
+    depends_on:
+      - mongo # 声明此服务依赖于 mongo 服务，确保 mongo 先启动
+    networks:
+      - app-network # 将此服务连接到名为 app-network 的网络
+      - baota_net # 添加对共享外部网络的连接
+
+  mongo: # 定义 MongoDB 服务
+    image: mongo:7 # 使用官方 MongoDB 7 镜像 (可以根据需要选择其他版本)
+    container_name: mongo_db # 为容器指定名称（可选）
+    env_file:
+      - .env # 将 .env 文件中的环境变量加载到容器中
+    ports:
+      # 将宿主机的 27017 端口映射到容器的 27017 端口 (方便从宿主机连接调试)
+      - "27017:27017"
+    volumes:
+      # 将 MongoDB 数据持久化到名为 mongodb_data 的 Docker 卷中
+      - mongodb_data:/data/db
+    networks:
+      - app-network # 将此服务连接到名为 app-network 的网络
+
+networks: # 定义网络
+  app-network: # 创建一个自定义桥接网络
+    driver: bridge # 使用默认的 bridge 驱动
+  baota_net: # 声明要使用的外部网络
+    external: true # 表明这是一个已存在的外部网络,需要手动创建
+
+volumes: # 定义卷
+  mongodb_data: # 声明一个名为 mongodb_data 的卷，用于持久化存储

@@ -53,6 +53,7 @@ async def upload_file_to_knowledge_base(
         result = await knowledgeSev.process_uploaded_file(
             kb_id=kb_id,
             file=file,
+            # 注释保留
             # embedding_supplier=embedding_supplier,
             # embedding_model=embedding_model,
             # embedding_api_key=embedding_api_key,
