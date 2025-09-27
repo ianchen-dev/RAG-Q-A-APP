@@ -425,3 +425,9 @@ async def close_databases() -> None:
     if DatabaseManager._instance is not None:
         await DatabaseManager._instance.close()
         # 注意：这里不重置 _instance，因为单例对象可能被重新初始化
+
+
+async def get_redis_client() -> aioredis.Redis:
+    """获取 Redis 客户端的便捷函数"""
+    manager = await get_database_manager()
+    return await manager.get_redis_client()

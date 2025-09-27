@@ -179,7 +179,7 @@ async def chat_stream_endpoint(
 
 
 # @ChatRouter.post(
-#     "/",
+#     "/chat",
 #     summary="AI Chat (Non-Streaming)",
 #     description="(旧) 与 AI 进行对话，可选使用知识库和重排序。推荐使用 /stream 端点。",
 # )

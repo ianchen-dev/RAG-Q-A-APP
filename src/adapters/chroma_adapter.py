@@ -110,7 +110,7 @@ class ChromaAdapter(VectorDBAdapter):
 
             # 检查集合是否已存在
             if await self.collection_exists(collection_name):
-                # 集合已存在，使用add_documents
+                # 集合已存在，使用aadd_documents
                 document_ids = await collection.aadd_documents(documents)
             else:
                 # 集合不存在，使用from_documents创建

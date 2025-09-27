@@ -250,6 +250,215 @@ async def process_uploaded_file(
             os.remove(tmp_file_path)
 
 
+async def process_uploaded_file_sync(
+    kb_id: str,
+    file_path: str,
+    file_name: str,
+    file_md5: str,
+    knowledge_base_doc: KnowledgeBaseModel,
+) -> dict:
+    """
+    同步处理已保存的文件，用于异步队列处理
+
+    Args:
+        kb_id: 知识库ID
+        file_path: 文件路径
+        file_name: 文件名
+        file_md5: 文件MD5值
+        knowledge_base_doc: 知识库文档对象
+
+    Returns:
+        处理结果字典
+
+    Raises:
+        ValueError: 配置错误或文件已存在
+        FileNotFoundError: 文件不存在
+        Exception: 其他处理错误
+    """
+    logger.info(f"开始同步处理文件: {file_name} (MD5: {file_md5})")
+
+    try:
+        # 1. 检查知识库是否有 embedding_config
+        if not knowledge_base_doc.embedding_config:
+            raise ValueError(f"知识库 {kb_id} 缺少嵌入配置 (embedding_config)。")
+        if (
+            not knowledge_base_doc.embedding_config.embedding_model
+            or not knowledge_base_doc.embedding_config.embedding_supplier
+        ):
+            raise ValueError(f"知识库 {kb_id} 的嵌入配置不完整。")
+
+        # 2. 检查文件是否已存在于 filesList (基于 MD5)
+        if knowledge_base_doc.filesList:
+            for existing_file in knowledge_base_doc.filesList:
+                if existing_file.get("file_md5") == file_md5:
+                    logger.warning(
+                        f"文件 (MD5: {file_md5}) 已存在于知识库 {kb_id}，跳过处理。"
+                    )
+                    raise ValueError(
+                        f"文件 '{file_name}' (MD5: {file_md5}) 已存在于此知识库。"
+                    )
+
+        # 3. 检查文件是否存在
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"文件不存在: {file_path}")
+
+        # 4. 准备 Knowledge 工具类实例
+        config = knowledge_base_doc.embedding_config
+        logger.info(
+            f"使用知识库 {kb_id} 的嵌入配置: supplier='{config.embedding_supplier}', model='{config.embedding_model}'"
+        )
+        _embedding = get_embedding(
+            config.embedding_supplier,
+            config.embedding_model,
+            config.embedding_apikey,  # 使用配置中的 API Key
+        )
+        # 使用新的Knowledge类，可以指定向量数据库类型
+        knowledge_util = Knowledge(
+            _embeddings=_embedding,
+            vector_db_type=None,  # 使用配置文件中的默认类型
+            splitter="hybrid",  # 使用混合分割器
+            use_bm25=False,  # 可以根据需要启用BM25
+            use_reranker=False,  # 可以根据需要启用重排序
+        )
+
+        # 5. 调用 Knowledge 类处理文件并存入 Chroma
+        await knowledge_util.add_file_to_knowledge_base(
+            kb_id=kb_id,
+            file_path=file_path,
+            file_name=file_name,
+            file_md5=file_md5,
+        )
+
+        # 6. 更新 MongoDB 中的 KnowledgeBase 文档
+        file_metadata_dict = {
+            "file_md5": file_md5,
+            "file_name": file_name,
+            "upload_time": datetime.now(),  # 添加上传时间 (UTC)
+        }
+        # 使用 $push 更新 filesList
+        await knowledge_base_doc.update({"$push": {"filesList": file_metadata_dict}})
+        logger.info(
+            f"文件 {file_name} (MD5: {file_md5}) 元数据已添加到 MongoDB 知识库 {kb_id}。"
+        )
+
+        # 7. 更新 Redis 缓存 (在 MongoDB 更新之后)
+        try:
+            updated_kb_doc = await KnowledgeBaseModel.get(ObjectId(kb_id))
+            if updated_kb_doc:
+                await _set_kb_cache(updated_kb_doc)  # 更新缓存
+            else:
+                logger.warning(f"更新缓存失败：无法在更新后重新获取知识库 {kb_id}")
+                await _delete_kb_cache(kb_id)
+        except Exception as cache_err:
+            logger.error(f"更新知识库 {kb_id} 的 Redis 缓存时失败: {cache_err}")
+            # 缓存失败不应阻止主流程成功返回，但需要记录
+
+        return {
+            "message": f"文件 '{file_name}' 成功处理到知识库 '{knowledge_base_doc.title}'。",
+            "knowledge_base_id": kb_id,
+            "file_name": file_name,
+            "file_md5": file_md5,
+        }
+
+    except FileNotFoundError as e:
+        logger.error(f"处理文件时未找到文件或路径: {e}")
+        raise
+    except ValueError as e:
+        logger.error(f"处理文件时发生值错误: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"处理文件 {file_name} 时发生未知错误: {e}", exc_info=True)
+        raise
+
+
+async def process_uploaded_file_async(
+    kb_id: str,
+    file: UploadFile,
+) -> dict:
+    """
+    异步处理上传的文件，快速响应并将任务加入队列
+
+    Args:
+        kb_id: 知识库ID
+        file: 上传的文件对象
+
+    Returns:
+        包含任务ID的响应字典
+
+    Raises:
+        FileNotFoundError: 知识库不存在
+        ValueError: 配置错误
+        Exception: 其他处理错误
+    """
+    from src.service.file_queue_manager import file_queue_manager
+
+    # 1. 验证 kb_id 并查找 KnowledgeBase 文档
+    if not ObjectId.is_valid(kb_id):
+        raise FileNotFoundError(f"无效的知识库 ID 格式: {kb_id}")
+    knowledge_base_doc = await KnowledgeBaseModel.get(ObjectId(kb_id))
+    if not knowledge_base_doc:
+        raise FileNotFoundError(f"知识库 ID 未找到: {kb_id}")
+
+    # 1.1 检查知识库是否有 embedding_config
+    if not knowledge_base_doc.embedding_config:
+        raise ValueError(f"知识库 {kb_id} 缺少嵌入配置 (embedding_config)。")
+    if (
+        not knowledge_base_doc.embedding_config.embedding_model
+        or not knowledge_base_doc.embedding_config.embedding_supplier
+    ):
+        raise ValueError(f"知识库 {kb_id} 的嵌入配置不完整。")
+
+    # 2. 快速验证和保存文件
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=f"_{file.filename}"
+    ) as tmp_file:
+        try:
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_file_path = tmp_file.name
+        finally:
+            file.file.close()
+
+    logger.info(f"临时文件已保存: {tmp_file_path}, 文件名: {file.filename}")
+
+    try:
+        # 3. 计算文件 MD5
+        file_md5 = Knowledge.get_file_md5(tmp_file_path)
+
+        # 4. 检查文件是否已存在（快速检查）
+        if knowledge_base_doc.filesList:
+            for existing_file in knowledge_base_doc.filesList:
+                if existing_file.get("file_md5") == file_md5:
+                    # 如果文件已存在，删除临时文件并抛出错误
+                    if os.path.exists(tmp_file_path):
+                        os.remove(tmp_file_path)
+                    raise ValueError(
+                        f"文件 '{file.filename}' (MD5: {file_md5}) 已存在于此知识库。"
+                    )
+
+        # 5. 将任务添加到队列
+        task_id = await file_queue_manager.add_task(
+            kb_id=kb_id,
+            file_path=tmp_file_path,
+            file_name=file.filename,
+            file_md5=file_md5,
+        )
+
+        return {
+            "message": f"文件 '{file.filename}' 已接收，正在后台处理",
+            "task_id": task_id,
+            "knowledge_base_id": kb_id,
+            "file_name": file.filename,
+            "file_md5": file_md5,
+            "status": "queued",
+        }
+
+    except Exception:
+        # 出错时清理临时文件
+        if os.path.exists(tmp_file_path):
+            os.remove(tmp_file_path)
+        raise
+
+
 @tool
 async def get_knowledge_list_tool():
     """获取所有知识库列表：

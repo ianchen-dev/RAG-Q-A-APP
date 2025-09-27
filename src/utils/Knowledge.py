@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_REMOTE_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 
 
-# --- 自定义远程 Reranker Compressor （保持不变）---
+# --- 自定义远程 Reranker Compressor ---
 class RemoteRerankerCompressor(BaseDocumentCompressor):
     """
     一个自定义的 Langchain 文档压缩器，

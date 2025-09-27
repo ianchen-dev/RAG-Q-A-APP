@@ -14,16 +14,13 @@ dependencies = [
     "python-multipart>=0.0.20",
     "starlette",
     "pydantic",
-    
     # 配置和环境
     "python-dotenv>=1.1.0",
-    
     # 数据库相关
     "motor>=3.7.0",
     "beanie>=1.29.0",
     "pymongo",
     "redis>=5.2.1",
-    
     # LangChain 核心
     "langchain>=0.3.21",
     "langchain-core",
@@ -33,21 +30,17 @@ dependencies = [
     "langchain-ollama>=0.3.0",
     "langchain-mongodb>=0.6.0",
     "langchain-text-splitters",
-    
     # 文档处理 - 基础版本
     "pypdf>=5.4.0",
     "python-docx>=1.1.2",
     "markdown>=3.8",
-    "unstructured[docx]>=0.17.2",      # 高级文档处理
-    
+    "unstructured[docx]>=0.17.2", # 高级文档处理
     # 安全相关
     "python-jose[cryptography]>=3.4.0",
     "passlib[bcrypt]>=1.7.4",
-    
     # HTTP 客户端
     "httpx",
     "aiohttp>=3.11.18",
-    
     # 搜索相关
     "rank-bm25>=0.2.2",
 ]
@@ -59,18 +52,37 @@ license = {text = "MIT"}
 [dependency-groups]
 # 开发依赖
 dev = [
-    "ruff>=0.11.4",
-    "deptry>=0.23.0",
-   
+    "ruff>=0.11.4",   
 ]
 # 测试
 test = [
     "pytest>=8.4.2",
-    "pytest-asyncio>=0.24.0",  # 支持异步测试
-    "pytest-html>=4.1.1",     # HTML测试报告
-    "pytest-cov>=6.0.0",      # 测试覆盖率
-    "locust>=2.34.1",         #压力测试
+    "pytest-asyncio>=0.24.0", # 支持异步测试
+    "pytest-html>=4.1.1", # HTML测试报告
+    "pytest-cov>=6.0.0", # 测试覆盖率
+    "locust>=2.34.1", #压力测试
+]
 
+# RAG评估
+ragas = [
+    "datasets>=4.1.1",
+    "matplotlib>=3.10.6",
+    "pandas>=2.3.2",
+    "pyyaml>=6.0.2",
+    "ragas>=0.3.5",
+    "seaborn>=0.13.2",
+]
+
+# Jupyter Notebook 支持 - 临时开发使用
+jupyter = [
+    "jupyter>=1.1.1",           # Jupyter核心
+    "jupyterlab>=4.3.4",        # JupyterLab界面
+    "notebook>=7.3.1",          # Jupyter Notebook
+    "ipykernel>=6.29.5",        # Python内核
+    "ipywidgets>=8.1.5",        # 交互式组件
+    "matplotlib>=3.10.0",       # 绘图库
+    "seaborn>=0.13.2",          # 统计绘图
+    "plotly>=5.25.0",           # 交互式图表
 ]
 
 # Agent 功能 - 可选安装

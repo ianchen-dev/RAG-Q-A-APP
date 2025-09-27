@@ -121,7 +121,7 @@ class DocumentChunker(BaseLoader):
         self.loader: BaseLoader = loader_class(self.file_path, **params)
 
         # --- 开始修改 ---
-        # 特殊处理：如果文件是Markdown且使用markdown分割策略，则强制使用TextLoader
+        # 特殊处理：如果文件是Markdown且使用markdown分割策略，则使用TextLoader
         if self.file_type_ == FileType.MD and self.splitter_type == "markdown":
             print(
                 "检测到 Markdown 文件和 markdown 分割策略，切换到 TextLoader 以保留原始标题进行分割。"
