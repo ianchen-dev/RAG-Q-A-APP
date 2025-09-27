@@ -24,13 +24,14 @@ from .evaluator import RAGASEvaluator
 class MainEvaluator:
     """主评估流程协调器"""
 
-    def __init__(self, config: EvaluationConfig):
+    def __init__(self, config: EvaluationConfig, max_concurrent: int = 10):
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.max_concurrent = max_concurrent
 
         # 初始化各组件
         self.data_loader = DataLoader(config.dataset)
-        self.answer_generator = AnswerGenerator(config)
+        self.answer_generator = AnswerGenerator(config, max_concurrent=max_concurrent)
         self.evaluator = RAGASEvaluator(config)
 
         # 验证配置
@@ -68,11 +69,11 @@ class MainEvaluator:
             # 2. 加载数据集
             dataset = await self._load_dataset()
 
-            # 3. 生成答案
-            answers = await self._generate_answers(dataset)
+            # 3. 生成答案（同时收集上下文）
+            answers, generated_contexts = await self._generate_answers(dataset)
 
             # 4. 获取上下文（如果需要）
-            contexts = await self._get_contexts(dataset, answers)
+            contexts = await self._get_contexts(dataset, answers, generated_contexts)
 
             # 5. 执行评估
             evaluation_results = await self._run_evaluation(dataset, answers, contexts)
@@ -116,16 +117,12 @@ class MainEvaluator:
     async def _generate_answers(self, dataset):
         """生成答案"""
         self.logger.info("3/6 生成答案...")
+        self.logger.info(f"使用异步并发模式生成答案，最大并发数: {self.max_concurrent}")
 
-        # 检查是否需要批量生成
-        if len(dataset.questions) > 10:
-            self.logger.info("使用批量并发模式生成答案...")
-            answers = await self.answer_generator.batch_generate_answers(
-                dataset.questions, batch_size=5
-            )
-        else:
-            self.logger.info("使用串行模式生成答案...")
-            answers = await self.answer_generator.generate_answers(dataset.questions)
+        # 使用异步并发生成答案
+        answers, contexts = await self.answer_generator.generate_answers(
+            dataset.questions
+        )
 
         # 统计生成结果
         success_count = len(
@@ -137,15 +134,18 @@ class MainEvaluator:
         )
         self.logger.info(f"答案生成完成: 成功 {success_count}/{len(answers)}")
 
-        return answers
+        return answers, contexts
 
-    async def _get_contexts(self, dataset, answers):
+    async def _get_contexts(self, dataset, answers, generated_contexts):
         """获取上下文"""
         self.logger.info("4/6 获取上下文...")
 
         if dataset.contexts is not None:
             self.logger.info("使用预设上下文")
             contexts = dataset.contexts
+        elif generated_contexts and any(generated_contexts):
+            self.logger.info("使用答案生成过程中收集的上下文")
+            contexts = generated_contexts
         else:
             self.logger.info("从知识库检索上下文...")
             contexts = await self.answer_generator.get_contexts_for_questions(

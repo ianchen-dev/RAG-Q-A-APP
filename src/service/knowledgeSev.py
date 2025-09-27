@@ -184,6 +184,8 @@ async def process_uploaded_file(
             splitter="hybrid",  # 使用混合分割器
             use_bm25=False,  # 可以根据需要启用BM25
             use_reranker=False,  # 可以根据需要启用重排序
+            batch_size=None,  # 设置批次大小以避免嵌入模型限制
+            max_concurrent_batches=None,  # 设置最大并发批次数量
         )
 
         # 6. 调用 Knowledge 类处理文件并存入 Chroma
@@ -319,6 +321,8 @@ async def process_uploaded_file_sync(
             splitter="hybrid",  # 使用混合分割器
             use_bm25=False,  # 可以根据需要启用BM25
             use_reranker=False,  # 可以根据需要启用重排序
+            batch_size=64,  # 设置批次大小以避免嵌入模型限制
+            max_concurrent_batches=5,  # 设置最大并发批次数量
         )
 
         # 5. 调用 Knowledge 类处理文件并存入 Chroma

@@ -5,6 +5,9 @@ docs/
 项目结构
 langgraph_test/
 test-results/
+# RAGas
+evaluation/datasets
+evaluation/results
 #secret
 compose.yml
 #CICD

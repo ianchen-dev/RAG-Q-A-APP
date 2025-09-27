@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 
 class ChatSev:
-    # 废弃-移除类级别的内存历史记录实例
     # _chat_history = ChatMessageHistory()  # 对话历史
 
     def __init__(
@@ -88,7 +87,7 @@ class ChatSev:
 
         # 知识库prompt--system
         knowledge_system_prompt = (
-            f"{ai_info} 【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果检索到的上下文中没有问题的答案，请你回答:'根据检索到的上下文，我无法准确回答这个问题'。检索到的上下文如下：\n\n"
+            f"{ai_info} 【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果根据检索到的上下文不能够回答问题，请你回答:'据检索到的上下文不足够回答该问题'。检索到的上下文如下：\n"
             "{context}"
         )
 
@@ -144,6 +143,7 @@ class ChatSev:
             max_length=max_length,
             temperature=temperature,
         )
+
         base_chain: RunnableSerializable
 
         if knowledge_base_id and self.knowledge:

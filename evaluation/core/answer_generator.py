@@ -23,11 +23,13 @@ from src.utils.Knowledge import Knowledge
 class AnswerGenerator:
     """RAG答案生成器，集成ChatSev和Knowledge"""
 
-    def __init__(self, config: EvaluationConfig):
+    def __init__(self, config: EvaluationConfig, max_concurrent: int = 10):
         self.config = config
         self.knowledge: Optional[Knowledge] = None
         self.chat_service: Optional[ChatSev] = None
         self.logger = logging.getLogger(__name__)
+        self.max_concurrent = max_concurrent
+        self.semaphore = asyncio.Semaphore(max_concurrent)
 
     async def initialize(self):
         """初始化知识库和聊天服务"""
@@ -104,55 +106,97 @@ class AnswerGenerator:
             self.logger.error(f"初始化知识库失败: {e}", exc_info=True)
             raise
 
-    async def generate_answers(self, questions: List[str]) -> List[str]:
-        """为问题列表生成答案
+    async def generate_answers(
+        self, questions: List[str]
+    ) -> tuple[List[str], List[List[str]]]:
+        """为问题列表生成答案，并收集使用的上下文（异步并发版本）
 
         Args:
             questions: 问题列表
 
         Returns:
-            List[str]: 答案列表
+            tuple[List[str], List[List[str]]]: (答案列表, 上下文列表)
         """
         if not self.chat_service:
             raise RuntimeError("答案生成器未初始化，请先调用initialize()方法")
 
-        self.logger.info(f"开始生成 {len(questions)} 个问题的答案...")
-        answers = []
+        self.logger.info(
+            f"开始并发生成 {len(questions)} 个问题的答案，最大并发数: {self.max_concurrent}"
+        )
 
+        # 创建所有任务
+        tasks = []
         for i, question in enumerate(questions):
-            self.logger.info(
-                f"正在生成第 {i + 1}/{len(questions)} 个答案: {question[:50]}..."
+            task = self._generate_single_answer_with_semaphore(
+                question, i + 1, len(questions)
             )
+            tasks.append(task)
+
+        # 并发执行所有任务
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 处理结果
+        answers = []
+        all_contexts = []
+        success_count = 0
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                self.logger.error(f"生成第 {i + 1} 个答案失败: {result}", exc_info=True)
+                answers.append(f"生成失败: {str(result)}")
+                all_contexts.append([])
+            elif isinstance(result, tuple) and len(result) == 2:
+                answer, contexts = result
+                answers.append(answer)
+                all_contexts.append(contexts)
+                if not answer.startswith("生成失败"):
+                    success_count += 1
+            else:
+                self.logger.error(f"第 {i + 1} 个答案返回格式异常: {result}")
+                answers.append("返回格式异常")
+                all_contexts.append([])
+
+        self.logger.info(f"并发答案生成完成，成功: {success_count}/{len(questions)}")
+        return answers, all_contexts
+
+    async def _generate_single_answer_with_semaphore(
+        self, question: str, index: int, total: int
+    ) -> tuple[str, list[str]]:
+        """带信号量控制的单个答案生成方法
+
+        Args:
+            question: 问题文本
+            index: 当前问题索引（从1开始）
+            total: 总问题数
+
+        Returns:
+            tuple[str, list[str]]: (生成的答案, 使用的上下文列表)
+        """
+        async with self.semaphore:
+            self.logger.info(f"开始生成第 {index}/{total} 个答案: {question[:50]}...")
 
             try:
-                answer = await self._generate_single_answer(question)
-                answers.append(answer)
-                self.logger.info(f"答案生成完成 ({i + 1}/{len(questions)})")
-
-                # 添加短暂延迟，避免API调用过于频繁
-                if i < len(questions) - 1:  # 最后一个不需要延迟
-                    await asyncio.sleep(0.5)
-
+                answer, contexts = await self._generate_single_answer(question)
+                self.logger.info(
+                    f"答案生成完成 ({index}/{total})，获得 {len(contexts)} 个上下文"
+                )
+                return answer, contexts
             except Exception as e:
-                self.logger.error(f"生成答案失败 {question}: {e}", exc_info=True)
-                answers.append(f"生成失败: {str(e)}")
+                self.logger.error(f"生成第 {index} 个答案失败: {e}", exc_info=True)
+                return f"生成失败: {str(e)}", []
 
-        self.logger.info(
-            f"所有答案生成完成，成功: {len([a for a in answers if not a.startswith('生成失败')])}/{len(questions)}"
-        )
-        return answers
-
-    async def _generate_single_answer(self, question: str) -> str:
-        """生成单个问题的答案
+    async def _generate_single_answer(self, question: str) -> tuple[str, list[str]]:
+        """生成单个问题的答案，并收集使用的上下文
 
         Args:
             question: 问题文本
 
         Returns:
-            str: 生成的答案
+            tuple[str, list[str]]: (生成的答案, 使用的上下文列表)
         """
         # 收集流式响应
         full_answer = ""
+        contexts = []
 
         try:
             # 获取知识库ID (如果使用知识库模式)
@@ -176,13 +220,30 @@ class AnswerGenerator:
                 search_k=search_k,
                 temperature=self.config.llm_config.temperature,
             ):
-                # 只收集实际的答案内容chunk
+                # 收集答案内容chunk
                 if chunk_dict.get("type") == "chunk":
                     chunk_data = chunk_dict.get("data", "")
                     if chunk_data:
                         full_answer += chunk_data
 
-            return full_answer.strip() if full_answer else "未能生成有效答案"
+                # 收集上下文信息（从tool_result中提取）
+                elif chunk_dict.get("type") == "tool_result":
+                    tool_data = chunk_dict.get("data", {})
+                    if tool_data.get("name") == "知识库检索":
+                        context_json = tool_data.get("content", "")
+                        if context_json:
+                            try:
+                                import json
+
+                                context_docs = json.loads(context_json)
+                                for doc in context_docs:
+                                    if isinstance(doc, dict) and "page_content" in doc:
+                                        contexts.append(doc["page_content"])
+                            except json.JSONDecodeError as e:
+                                self.logger.warning(f"解析上下文JSON失败: {e}")
+
+            answer = full_answer.strip() if full_answer else "未能生成有效答案"
+            return answer, contexts
 
         except Exception as e:
             self.logger.error(f"调用ChatSev失败: {e}", exc_info=True)
@@ -252,60 +313,20 @@ class AnswerGenerator:
 
     async def batch_generate_answers(
         self, questions: List[str], batch_size: int = 5
-    ) -> List[str]:
-        """批量并发生成答案
+    ) -> tuple[List[str], List[List[str]]]:
+        """批量并发生成答案（已废弃，建议使用 generate_answers 方法）
 
         Args:
             questions: 问题列表
             batch_size: 并发批次大小
 
         Returns:
-            List[str]: 答案列表
+            tuple[List[str], List[List[str]]]: (答案列表, 上下文列表)
         """
         if not self.chat_service:
             raise RuntimeError("答案生成器未初始化，请先调用initialize()方法")
 
-        self.logger.info(
-            f"开始批量生成答案，总计 {len(questions)} 个问题，批次大小: {batch_size}"
+        self.logger.warning(
+            "batch_generate_answers 方法已废弃，将使用 generate_answers 方法"
         )
-        all_answers = []
-
-        # 分批处理
-        for i in range(0, len(questions), batch_size):
-            batch_questions = questions[i : i + batch_size]
-            self.logger.info(
-                f"处理第 {i // batch_size + 1} 批，包含 {len(batch_questions)} 个问题"
-            )
-
-            # 并发生成当前批次的答案
-            tasks = [
-                self._generate_single_answer(question) for question in batch_questions
-            ]
-
-            try:
-                batch_answers = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # 处理异常结果
-                processed_answers = []
-                for j, result in enumerate(batch_answers):
-                    if isinstance(result, Exception):
-                        self.logger.error(f"批次中第 {j + 1} 个问题生成失败: {result}")
-                        processed_answers.append(f"生成失败: {str(result)}")
-                    else:
-                        processed_answers.append(result)
-
-                all_answers.extend(processed_answers)
-
-                # 批次间延迟
-                if i + batch_size < len(questions):
-                    await asyncio.sleep(1.0)
-
-            except Exception as e:
-                self.logger.error(f"批次处理失败: {e}", exc_info=True)
-                # 如果批次失败，为该批次的所有问题添加错误答案
-                all_answers.extend([f"批次生成失败: {str(e)}"] * len(batch_questions))
-
-        self.logger.info(
-            f"批量答案生成完成，成功: {len([a for a in all_answers if not a.startswith('生成失败') and not a.startswith('批次生成失败')])}/{len(questions)}"
-        )
-        return all_answers
+        return await self.generate_answers(questions)

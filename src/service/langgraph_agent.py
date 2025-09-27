@@ -200,18 +200,18 @@ async def main_graph_execution(
         logger.info("-" * 30)
         # 获取 LLM
 
-        # llm = get_llms(
-        #     supplier="oneapi",
-        #     model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用
-        #     api_key=os.getenv("ONEAPI_API_KEY"),
-        #     streaming=True,
-        # )
         llm = get_llms(
-            supplier="siliconflow",
-            model="deepseek-ai/DeepSeek-V3",
-            api_key=os.getenv("SILICONFLOW_API_KEY"),
+            supplier="oneapi",
+            model="deepseek-ai/DeepSeek-V3",  # 确保模型有效支持工具调用
+            api_key=os.getenv("ONEAPI_API_KEY"),
             streaming=True,
         )
+        # llm = get_llms(
+        #     supplier="siliconflow",
+        #     model="deepseek-ai/DeepSeek-V3",
+        #     api_key=os.getenv("SILICONFLOW_API_KEY"),
+        #     streaming=True,
+        # )
 
         # 使用 MongoDBSaver 替换 MemorySaver
         agent_executor = create_react_agent(

@@ -68,47 +68,87 @@ class RAGASEvaluator:
     def _initialize_metrics(self):
         """初始化RAGAS指标"""
         try:
-            # 根据RAGAS版本初始化指标
-            # 这些指标需要LLM来进行评估
-            judge_llm = self._get_judge_llm()
-
+            # 先尝试不使用LLM参数初始化（避免版本兼容性问题）
             self.METRICS_MAP = {
-                "ContextRelevance": ContextRelevance(llm=judge_llm),
-                "ContextPrecision": ContextPrecision(llm=judge_llm),
-                "ContextRecall": ContextRecall(llm=judge_llm),
-                "Faithfulness": Faithfulness(llm=judge_llm),
-                "AnswerRelevancy": AnswerRelevancy(llm=judge_llm),  # 使用新的类名
+                "ContextRelevance": ContextRelevance(),
+                "ContextPrecision": ContextPrecision(),
+                "ContextRecall": ContextRecall(),
+                "Faithfulness": Faithfulness(),
+                "AnswerRelevancy": AnswerRelevancy(),  # 使用新的类名
             }
+            self.logger.info("使用默认配置初始化RAGAS指标")
 
         except Exception as e:
             self.logger.error(f"初始化RAGAS指标失败: {e}", exc_info=True)
-            # 尝试不使用LLM参数的方式初始化
+            # 如果默认初始化失败，尝试使用LLM参数
             try:
-                self.METRICS_MAP = {
-                    "ContextRelevance": ContextRelevance(),
-                    "ContextPrecision": ContextPrecision(),
-                    "ContextRecall": ContextRecall(),
-                    "Faithfulness": Faithfulness(),
-                    "AnswerRelevancy": AnswerRelevancy(),  # 使用新的类名
-                }
-                self.logger.info("使用默认配置初始化RAGAS指标")
+                judge_llm = self._get_judge_llm()
+                if judge_llm:
+                    self.METRICS_MAP = {
+                        "ContextRelevance": ContextRelevance(llm=judge_llm),
+                        "ContextPrecision": ContextPrecision(llm=judge_llm),
+                        "ContextRecall": ContextRecall(llm=judge_llm),
+                        "Faithfulness": Faithfulness(llm=judge_llm),
+                        "AnswerRelevancy": AnswerRelevancy(llm=judge_llm),
+                    }
+                    self.logger.info("使用自定义LLM初始化RAGAS指标")
+                else:
+                    raise Exception("无法获取评估LLM")
             except Exception as e2:
-                self.logger.error(f"默认配置初始化也失败: {e2}")
+                self.logger.error(f"LLM初始化也失败: {e2}")
                 raise
 
     def _get_judge_llm(self):
         """获取评估用的LLM"""
         try:
             judge_config = self.config.evaluator_config.judge_llm
-            return get_llms(
+            llm = get_llms(
                 supplier=judge_config.supplier,
                 model=judge_config.model,
                 api_key=judge_config.api_key,
                 temperature=judge_config.temperature,
             )
+
+            # 为LLM添加速率限制配置
+            if hasattr(llm, "request_timeout"):
+                llm.request_timeout = 60  # 设置请求超时
+            if hasattr(llm, "max_retries"):
+                llm.max_retries = 3  # 设置最大重试次数
+
+            return llm
         except Exception as e:
             self.logger.warning(f"获取评估LLM失败: {e}")
             return None
+
+    def _get_embeddings(self):
+        """获取嵌入模型"""
+        try:
+            from src.utils.embedding import get_embedding
+
+            # 使用项目中已有的嵌入模型获取函数
+            embeddings = get_embedding("siliconflow", "BAAI/bge-m3")
+            return embeddings
+        except Exception as e:
+            self.logger.warning(f"获取嵌入模型失败: {e}")
+            # 如果获取项目嵌入模型失败，尝试使用配置中的LLM provider来创建兼容的嵌入模型
+            try:
+                judge_config = self.config.evaluator_config.judge_llm
+                if judge_config.supplier == "siliconflow":
+                    from langchain_openai import OpenAIEmbeddings
+
+                    return OpenAIEmbeddings(
+                        api_key=judge_config.api_key,
+                        base_url="https://api.siliconflow.cn/v1",
+                        model="BAAI/bge-m3",  # SiliconFlow支持的嵌入模型
+                    )
+                else:
+                    self.logger.error(
+                        f"不支持的嵌入模型供应商: {judge_config.supplier}"
+                    )
+                    return None
+            except Exception as e2:
+                self.logger.error(f"创建备用嵌入模型也失败: {e2}")
+                return None
 
     async def evaluate(
         self,
@@ -154,11 +194,72 @@ class RAGASEvaluator:
             self.logger.info("开始RAGAS评估计算...")
 
             # 在异步环境中运行同步的evaluate函数
+            # 获取评估用的LLM，确保RAGAS使用我们配置的LLM而不是默认的OpenAI
+            judge_llm = self._get_judge_llm()
+            self.logger.info(f"获取到的评估LLM: {type(judge_llm)} - {judge_llm}")
+
+            if judge_llm is None:
+                self.logger.error("评估LLM为None，无法进行RAGAS评估")
+                raise RuntimeError("评估LLM配置失败")
+
+            # 获取嵌入模型，避免RAGAS创建默认的OpenAI嵌入模型
+            embeddings = self._get_embeddings()
+            self.logger.info(f"获取到的嵌入模型: {type(embeddings)} - {embeddings}")
+
+            if embeddings is None:
+                self.logger.error("嵌入模型为None，无法进行RAGAS评估")
+                raise RuntimeError("嵌入模型配置失败")
+
+            # 设置评估配置，降低并发以避免API限制
+            from ragas.run_config import RunConfig
+
+            run_config = RunConfig(
+                max_workers=2,  # 进一步降低并发，避免超时
+                max_wait=600,  # 增加最大等待时间
+                timeout=120,  # 增加单个请求超时时间
+            )
+
             result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: evaluate(dataset=dataset, metrics=self.selected_metrics)
+                None,
+                lambda: evaluate(
+                    dataset=dataset,
+                    metrics=self.selected_metrics,
+                    llm=judge_llm,  # 明确传递LLM，避免RAGAS创建默认OpenAI客户端
+                    embeddings=embeddings,  # 明确传递嵌入模型，避免RAGAS创建默认OpenAI嵌入
+                    run_config=run_config,  # 添加运行配置控制并发
+                ),
             )
 
             self.logger.info("RAGAS评估计算完成")
+            self.logger.info(f"RAGAS原始结果类型: {type(result)}")
+            if hasattr(result, "to_pandas"):
+                df = result.to_pandas()
+                self.logger.info(f"RAGAS结果列名: {list(df.columns)}")
+                self.logger.info(f"RAGAS结果前几行:\n{df.head()}")
+
+                # 详细分析每列的数据状态
+                for col in df.columns:
+                    if col in [
+                        "nv_context_relevance",
+                        "context_precision",
+                        "context_recall",
+                        "faithfulness",
+                        "answer_relevancy",
+                    ]:
+                        null_count = df[col].isna().sum()
+                        total_count = len(df[col])
+                        valid_count = total_count - null_count
+                        if valid_count > 0:
+                            self.logger.info(
+                                f"列 {col}: {valid_count}/{total_count} 有效值, 平均值: {df[col].dropna().mean():.4f}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"列 {col}: {valid_count}/{total_count} 有效值 (全部为NaN)"
+                            )
+            else:
+                self.logger.info(f"RAGAS结果内容: {result}")
+
             return self._process_results(result, processed_data)
 
         except Exception as e:
@@ -251,12 +352,68 @@ class RAGASEvaluator:
                 df = pd.DataFrame(ragas_result)
 
             # 计算各指标的平均分数
+            self.logger.info(f"配置的指标: {self.config.metrics}")
+            self.logger.info(f"DataFrame可用列: {list(df.columns)}")
+
+            # RAGAS指标名称映射
+            metric_mapping = {
+                "ContextRelevance": "nv_context_relevance",  # 实际RAGAS返回的列名
+                "ContextPrecision": "context_precision",
+                "ContextRecall": "context_recall",
+                "Faithfulness": "faithfulness",
+                "AnswerRelevancy": "answer_relevancy",
+            }
+
             for metric_name in self.config.metrics:
-                metric_key = metric_name.lower()
-                if metric_key in df.columns:
-                    overall_scores[metric_name] = df[metric_key].mean()
-                elif hasattr(ragas_result, metric_key):
-                    overall_scores[metric_name] = getattr(ragas_result, metric_key)
+                # 首先尝试映射的名称
+                mapped_name = metric_mapping.get(metric_name)
+                if mapped_name and mapped_name in df.columns:
+                    series = df[mapped_name]
+                    # 过滤NaN值再计算平均值
+                    valid_values = series.dropna()
+                    if len(valid_values) > 0:
+                        score = valid_values.mean()
+                        self.logger.info(
+                            f"指标 {metric_name} (映射为 {mapped_name}): {score} (有效值: {len(valid_values)}/{len(series)})"
+                        )
+                    else:
+                        score = 0.0
+                        self.logger.warning(
+                            f"指标 {metric_name} (映射为 {mapped_name}): 所有值都是NaN，设为0"
+                        )
+                    overall_scores[metric_name] = score
+                # 然后尝试小写名称
+                elif metric_name.lower() in df.columns:
+                    series = df[metric_name.lower()]
+                    valid_values = series.dropna()
+                    if len(valid_values) > 0:
+                        score = valid_values.mean()
+                        self.logger.info(
+                            f"指标 {metric_name} (小写): {score} (有效值: {len(valid_values)}/{len(series)})"
+                        )
+                    else:
+                        score = 0.0
+                        self.logger.warning(
+                            f"指标 {metric_name} (小写): 所有值都是NaN，设为0"
+                        )
+                    overall_scores[metric_name] = score
+                # 最后尝试原名称
+                elif metric_name in df.columns:
+                    series = df[metric_name]
+                    valid_values = series.dropna()
+                    if len(valid_values) > 0:
+                        score = valid_values.mean()
+                        self.logger.info(
+                            f"指标 {metric_name} (原名): {score} (有效值: {len(valid_values)}/{len(series)})"
+                        )
+                    else:
+                        score = 0.0
+                        self.logger.warning(
+                            f"指标 {metric_name} (原名): 所有值都是NaN，设为0"
+                        )
+                    overall_scores[metric_name] = score
+                else:
+                    self.logger.warning(f"指标 {metric_name} 在RAGAS结果中未找到")
 
             # 生成摘要
             summary = self._generate_summary(overall_scores)

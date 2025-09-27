@@ -31,6 +31,13 @@ logger = setup_development_logging(log_dir="./log")
 # 环境变量加载与检查
 import pathlib
 
+# 代理
+# 代理配置 - 注意：如果OneAPI运行在本地，应该排除本地连接使用代理
+os.environ["http_proxy"] = "http://127.0.0.1:7890"  # 修正Clash默认端口
+os.environ["https_proxy"] = "http://127.0.0.1:7890"  # 修正Clash默认端口
+# 排除本地服务使用代理
+os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
+
 
 def check_env_file_and_load():
     """检查并加载环境变量文件"""

@@ -42,13 +42,18 @@ def get_llms(
         elif supplier == "ollama":
             return ChatOllama(model=model)
         elif supplier == "oneapi":
-            return ChatOpenAI(
+            chat = ChatOpenAI(
                 api_key=api_key,
-                base_url=ONEAPI_BASE_URL,
+                base_url="http://localhost:3000/v1",
                 model=model,
                 temperature=temperature,
                 streaming=streaming,
             )
+            # 检查 chat 是否为支持的聊天模型类型
+            if not isinstance(chat, (ChatOpenAI, BaseChatOpenAI, ChatOllama)):  # type: ignore
+                raise ValueError("model init error")
+
+            return chat
         else:
             raise ValueError(f"Unsupported supplier: {supplier}")
     except Exception as e:
@@ -57,6 +62,12 @@ def get_llms(
 
 
 if __name__ == "__main__":
-    model = "deepseek-r1:latest"  # 使用DeepSeek聊天模型
-    llm = get_llms(supplier="ollama", model=model, max_length=10086)
+    model = "deepseek-ai/DeepSeek-V3"
+    from dotenv import load_dotenv
+
+    load_dotenv(dotenv_path="D:/aProject/fastapi/.env.dev")
+    apikey = os.getenv("siliconflow_api_key")  # 使用DeepSeek聊天模型
+    llm = get_llms(
+        supplier="siliconflow", model=model, api_key=apikey, max_length=10086
+    )
     print(llm.invoke("你好"))

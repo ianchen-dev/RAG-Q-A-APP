@@ -82,6 +82,27 @@ class ConfigValidator:
                     self.errors.append("知识库模式下必须指定 kb_id")
                 if kb_config.search_k <= 0:
                     self.errors.append("search_k 必须大于0")
+
+            # 知识库模式下仍需要文件路径来加载问题和真实答案
+            if not dataset_config.questions_path:
+                self.errors.append(
+                    "知识库模式下仍需要指定 questions_path 来加载评估问题"
+                )
+            else:
+                if not Path(dataset_config.questions_path).exists():
+                    self.errors.append(
+                        f"问题文件不存在: {dataset_config.questions_path}"
+                    )
+
+            if not dataset_config.ground_truths_path:
+                self.errors.append(
+                    "知识库模式下仍需要指定 ground_truths_path 来加载真实答案"
+                )
+            else:
+                if not Path(dataset_config.ground_truths_path).exists():
+                    self.errors.append(
+                        f"真实答案文件不存在: {dataset_config.ground_truths_path}"
+                    )
         else:
             self.errors.append(f"不支持的数据集类型: {dataset_config.type}")
 

@@ -15,39 +15,34 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
-# 在导入任何其他模块之前先加载环境变量
 def setup_environment():
     """设置环境变量"""
-    # 获取项目根目录路径
-    project_root = Path(__file__).parent.parent
+    print(f"项目根目录: {project_root}")
 
-    print(f"项目根目录: {project_root.absolute()}")
+    # 检查 .env 文件
+    env_file = project_root / ".env"
+    print(f"检查 .env 文件: {env_file}, 存在: {env_file.exists()}")
 
-    # 加载环境变量 - 使用绝对路径
-    env_path = project_root / ".env"
-    print(f"检查 .env 文件: {env_path.absolute()}, 存在: {env_path.exists()}")
-    if env_path.exists():
-        load_dotenv(dotenv_path=env_path)  # 加载 .env 基础配置
+    if env_file.exists():
+        load_dotenv(dotenv_path=env_file)  # 加载 .env 基础配置
         print("已加载 .env 基础配置")
 
-    # 尝试加载开发环境配置 - 使用绝对路径
-    dev_env_path = project_root / ".env.dev"
-    print(
-        f"检查 .env.dev 文件: {dev_env_path.absolute()}, 存在: {dev_env_path.exists()}"
-    )
-    if dev_env_path.exists():
+    # 尝试加载开发环境配置
+    dev_env_file = project_root / ".env.dev"
+    print(f"检查 .env.dev 文件: {dev_env_file}, 存在: {dev_env_file.exists()}")
+
+    if dev_env_file.exists():
         print("加载开发环境配置 .env.dev")
-        load_dotenv(dotenv_path=dev_env_path, override=True)
+        load_dotenv(dotenv_path=dev_env_file, override=True)
         print("已加载 .env.dev 配置")
 
 
-# 立即加载环境变量
 setup_environment()
 
-# 现在可以安全地导入需要环境变量的模块
 from core.main_evaluator import MainEvaluator
 
 from config.config_schema import load_config
+from src.config.database_manager import close_databases, get_database_manager
 from src.config.logging_config import setup_development_logging
 
 
@@ -64,6 +59,24 @@ def setup_logging(verbose: bool = False) -> logging.Logger:
     return logger
 
 
+async def initialize_databases(logger: logging.Logger):
+    """初始化数据库连接和 Beanie ODM"""
+    try:
+        logger.info("正在初始化数据库连接...")
+
+        # 初始化数据库管理器，这会自动初始化 Beanie ODM
+        db_manager = await get_database_manager()
+
+        # 验证连接
+        await db_manager.health_check(force=True)
+        logger.info("数据库连接初始化成功")
+
+        return db_manager
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}", exc_info=True)
+        raise
+
+
 async def main():
     """主函数"""
     # 设置命令行参数解析
@@ -72,9 +85,9 @@ async def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例用法:
-  python evaluation/main.py --config evaluation/examples/sample_config.yaml
-  python evaluation/main.py --config my_config.yaml --verbose
-  python evaluation/main.py --quick-test
+  python evaluation/rag_evaluation.py --config evaluation/examples/sample_config.yaml
+  python evaluation/rag_evaluation.py --config my_config.yaml --verbose
+  python evaluation/rag_evaluation.py --quick-test
         """,
     )
 
@@ -90,9 +103,12 @@ async def main():
         "--dry-run", action="store_true", help="仅验证配置，不执行实际评估"
     )
 
+    parser.add_argument(
+        "--concurrent", type=int, default=10, help="最大并发数（默认10）"
+    )
+
     args = parser.parse_args()
 
-    # 设置日志（环境变量已在文件开头加载）
     logger = setup_logging(args.verbose)
 
     try:
@@ -100,10 +116,15 @@ async def main():
         logger.info("RAG评估系统启动")
         logger.info("=" * 60)
 
+        # 初始化数据库连接
+        await initialize_databases(logger)
+
         if args.quick_test:
-            await run_quick_test(logger)
+            await run_quick_test(logger, args.concurrent)
         elif args.config:
-            await run_evaluation_from_config(args.config, logger, args.dry_run)
+            await run_evaluation_from_config(
+                args.config, logger, args.dry_run, args.concurrent
+            )
         else:
             logger.error("请指定配置文件 (--config) 或使用快速测试 (--quick-test)")
             parser.print_help()
@@ -120,10 +141,20 @@ async def main():
     except Exception as e:
         logger.error(f"评估过程中发生错误: {e}", exc_info=True)
         return 1
+    finally:
+        # 清理数据库连接
+        try:
+            await close_databases()
+            logger.info("数据库连接已清理")
+        except Exception as e:
+            logger.warning(f"清理数据库连接时出现警告: {e}")
 
 
 async def run_evaluation_from_config(
-    config_path: str, logger: logging.Logger, dry_run: bool = False
+    config_path: str,
+    logger: logging.Logger,
+    dry_run: bool = False,
+    max_concurrent: int = 10,
 ):
     """从配置文件运行评估"""
     logger.info(f"从配置文件运行评估: {config_path}")
@@ -148,8 +179,8 @@ async def run_evaluation_from_config(
             return
 
         # 创建评估器
-        logger.info("创建评估器...")
-        evaluator = MainEvaluator(config)
+        logger.info(f"创建评估器，最大并发数: {max_concurrent}")
+        evaluator = MainEvaluator(config, max_concurrent=max_concurrent)
 
         # 运行评估
         logger.info("开始执行评估...")
@@ -163,7 +194,7 @@ async def run_evaluation_from_config(
         raise
 
 
-async def run_quick_test(logger: logging.Logger):
+async def run_quick_test(logger: logging.Logger, max_concurrent: int = 10):
     """运行快速测试"""
     logger.info("运行快速测试...")
 
@@ -172,7 +203,8 @@ async def run_quick_test(logger: logging.Logger):
 
     try:
         # 创建评估器
-        evaluator = MainEvaluator(test_config)
+        logger.info(f"创建快速测试评估器，最大并发数: {max_concurrent}")
+        evaluator = MainEvaluator(test_config, max_concurrent=max_concurrent)
 
         # 运行快速评估
         test_questions = [

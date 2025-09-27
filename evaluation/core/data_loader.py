@@ -165,28 +165,91 @@ class DataLoader:
         )
 
     async def _load_from_knowledge_base(self) -> EvaluationDataset:
-        """从知识库加载数据
+        """从知识库模式加载数据
 
-        注意：这个方法需要与Knowledge.py集成，当前返回空数据
+        知识库模式下：
+        - 问题和真实答案仍从文件加载（这些是评估数据集）
+        - 上下文存储在知识库中，通过检索器动态获取
+        - 这样设计是因为问题和答案通常是评估数据集，而上下文是知识内容
 
         Returns:
-            EvaluationDataset: 从知识库加载的数据集
+            EvaluationDataset: 从知识库模式加载的数据集
         """
-        self.logger.info("从知识库加载数据...")
+        self.logger.info("从知识库模式加载数据...")
 
-        # TODO: 实现从知识库加载逻辑
-        # 这里需要集成Knowledge.py的逻辑来获取问题和真实答案
-        # 目前返回空数据作为占位符
+        # 知识库模式下，问题和真实答案仍然从文件加载
+        # 因为这些是评估的标准数据集
+        if not self.config.questions_path or not self.config.ground_truths_path:
+            raise ValueError(
+                "知识库模式下仍需要指定 questions_path 和 ground_truths_path"
+            )
 
-        raise NotImplementedError("知识库数据加载功能尚未实现，请使用文件模式")
+        # 复用文件加载逻辑来加载问题和真实答案
+        self.logger.info("从文件加载问题和真实答案...")
 
-        # 示例实现框架：
-        # kb_config = self.config.knowledge_base
-        # questions = await self._fetch_questions_from_kb(kb_config.kb_id)
-        # ground_truths = await self._fetch_ground_truths_from_kb(kb_config.kb_id)
-        #
-        # return EvaluationDataset(
-        #     questions=questions,
-        #     ground_truths=ground_truths,
-        #     contexts=None  # 将在答案生成时动态获取
-        # )
+        # 加载问题
+        questions_file = Path(self.config.questions_path)
+        if not questions_file.exists():
+            raise FileNotFoundError(f"问题文件不存在: {self.config.questions_path}")
+
+        try:
+            with open(questions_file, "r", encoding="utf-8") as f:
+                questions_data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(f"问题文件JSON格式错误: {e}")
+
+        # 支持两种格式: {"questions": [...]} 或 [...]
+        if isinstance(questions_data, dict):
+            questions = questions_data.get("questions", [])
+        elif isinstance(questions_data, list):
+            questions = questions_data
+        else:
+            raise ValueError("问题文件格式错误，应为数组或包含questions字段的对象")
+
+        # 加载真实答案
+        gt_file = Path(self.config.ground_truths_path)
+        if not gt_file.exists():
+            raise FileNotFoundError(
+                f"真实答案文件不存在: {self.config.ground_truths_path}"
+            )
+
+        try:
+            with open(gt_file, "r", encoding="utf-8") as f:
+                gt_data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise json.JSONDecodeError(f"真实答案文件JSON格式错误: {e}")
+
+        # 支持两种格式: {"ground_truths": [...]} 或 [...]
+        if isinstance(gt_data, dict):
+            ground_truths = gt_data.get("ground_truths", [])
+        elif isinstance(gt_data, list):
+            ground_truths = gt_data
+        else:
+            raise ValueError(
+                "真实答案文件格式错误，应为数组或包含ground_truths字段的对象"
+            )
+
+        # 验证数据一致性
+        if len(questions) != len(ground_truths):
+            raise ValueError(
+                f"问题数量({len(questions)})与真实答案数量({len(ground_truths)})不匹配"
+            )
+
+        # 确保ground_truths中每个元素都是列表
+        processed_ground_truths = []
+        for i, gt in enumerate(ground_truths):
+            if isinstance(gt, str):
+                processed_ground_truths.append([gt])
+            elif isinstance(gt, list):
+                processed_ground_truths.append(gt)
+            else:
+                raise ValueError(f"真实答案第{i + 1}项格式错误，应为字符串或字符串数组")
+
+        self.logger.info(f"知识库模式数据加载完成: {len(questions)}个问题")
+        self.logger.info("上下文将在评估时从知识库动态检索")
+
+        return EvaluationDataset(
+            questions=questions,
+            ground_truths=processed_ground_truths,
+            contexts=None,  # 知识库模式下上下文将动态获取
+        )

@@ -144,6 +144,9 @@ class Knowledge:
         reranker_type: Literal["local", "remote"] = "remote",
         remote_rerank_config: Optional[Dict[str, Any]] = None,
         rerank_top_n: int = 3,
+        # 批次处理配置
+        batch_size: int = 64,
+        max_concurrent_batches: int = 5,
     ):
         """
         初始化Knowledge类
@@ -158,10 +161,14 @@ class Knowledge:
             reranker_type: 重排序器类型
             remote_rerank_config: 远程重排序配置
             rerank_top_n: 重排序返回的文档数量
+            batch_size: 嵌入批次大小，默认64
+            max_concurrent_batches: 最大并发批次数量，默认5
         """
         self._embeddings = _embeddings
         self.splitter = splitter
         self.vector_db_type = vector_db_type
+        self.batch_size = batch_size
+        self.max_concurrent_batches = max_concurrent_batches
 
         if not self._embeddings:
             logger.warning("Knowledge 类在没有提供 embedding 函数的情况下初始化。")
@@ -188,7 +195,8 @@ class Knowledge:
         logger.info(
             f"Knowledge 初始化: 向量DB={vector_db_type or '默认'}, "
             f"BM25={'启用' if use_bm25 else '禁用'}, "
-            f"Reranker={'启用' if use_reranker else '禁用'}"
+            f"Reranker={'启用' if use_reranker else '禁用'}, "
+            f"批次大小={batch_size}, 最大并发批次={max_concurrent_batches}"
         )
 
     @property
@@ -199,7 +207,12 @@ class Knowledge:
                 raise ValueError(
                     "无法初始化向量数据库管理器，因为缺少 embedding 函数。"
                 )
-            self._db_manager = VectorDBManager(self._embeddings, self.vector_db_type)
+            self._db_manager = VectorDBManager(
+                self._embeddings,
+                self.vector_db_type,
+                batch_size=self.batch_size,
+                max_concurrent_batches=self.max_concurrent_batches,
+            )
         return self._db_manager
 
     async def collection_exists(self, collection_name: str) -> bool:
@@ -241,8 +254,8 @@ class Knowledge:
                 file_path,
                 splitter_type=self.splitter,
                 embeddings=self._embeddings,
-                chunk_size=500,
-                chunk_overlap=50,
+                chunk_size=400,
+                chunk_overlap=40,
             )
 
             documents = loader.load()

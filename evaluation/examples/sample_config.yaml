@@ -8,18 +8,17 @@ evaluation:
   # 数据源配置
   dataset:
     # 数据源类型: "file" 或 "knowledge_base"
-    type: "file"
+    type: "knowledge_base"
 
     # 文件模式配置
     questions_path: "evaluation/examples/sample_questions.json"
     ground_truths_path: "evaluation/examples/sample_ground_truths.json"
-    contexts_path: "evaluation/examples/sample_contexts.txt" # 可选，如果不提供则从知识库检索
 
     # 知识库模式配置（当type为knowledge_base时）
-    # knowledge_base:
-    #   kb_id: "67fa7b1acaaf230867eefce1"
-    #   search_k: 5
-    #   filter_by_file_md5: null # 可选的文件过滤
+    knowledge_base:
+      kb_id: "68d7cdf5c6d4cf9e606c364e"
+      search_k: 1
+      filter_by_file_md5: null # 可选的文件过滤
 
   # LLM配置（用于答案生成）
   llm_config:
@@ -29,17 +28,17 @@ evaluation:
     temperature: 0.1
 
   # 知识检索配置（仅在知识库模式下有效）
-  # knowledge_config:
-  #   use_bm25: true
-  #   bm25_k: 3
-  #   # 重排序配置
-  #   reranker_config:
-  #     use_reranker: true
-  #     reranker_type: "remote" # local, remote
-  #     remote_rerank_config:
-  #       api_key: "${SILICONFLOW_API_KEY}"
-  #       model: "BAAI/bge-reranker-v2-m3"
-  #     rerank_top_n: 3
+  knowledge_config:
+    use_bm25: false
+    bm25_k: 3
+    # 重排序配置
+    reranker_config:
+      use_reranker: false
+      reranker_type: "remote" # local, remote
+      remote_rerank_config:
+        api_key: "${SILICONFLOW_API_KEY}"
+        model: "BAAI/bge-reranker-v2-m3"
+      rerank_top_n: 3
 
   # 评估指标配置
   metrics:
