@@ -125,30 +125,12 @@ class RAGASEvaluator:
         try:
             from src.utils.embedding import get_embedding
 
+            judge_config = self.config.evaluator_config.judge_embedding
             # 使用项目中已有的嵌入模型获取函数
-            embeddings = get_embedding("siliconflow", "BAAI/bge-m3")
+            embeddings = get_embedding(judge_config.supplier, judge_config.model)
             return embeddings
         except Exception as e:
-            self.logger.warning(f"获取嵌入模型失败: {e}")
-            # 如果获取项目嵌入模型失败，尝试使用配置中的LLM provider来创建兼容的嵌入模型
-            try:
-                judge_config = self.config.evaluator_config.judge_llm
-                if judge_config.supplier == "siliconflow":
-                    from langchain_openai import OpenAIEmbeddings
-
-                    return OpenAIEmbeddings(
-                        api_key=judge_config.api_key,
-                        base_url="https://api.siliconflow.cn/v1",
-                        model="BAAI/bge-m3",  # SiliconFlow支持的嵌入模型
-                    )
-                else:
-                    self.logger.error(
-                        f"不支持的嵌入模型供应商: {judge_config.supplier}"
-                    )
-                    return None
-            except Exception as e2:
-                self.logger.error(f"创建备用嵌入模型也失败: {e2}")
-                return None
+            self.logger.error(f"获取嵌入模型失败: {e}")
 
     async def evaluate(
         self,

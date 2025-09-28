@@ -17,7 +17,7 @@ evaluation:
     # 知识库模式配置（当type为knowledge_base时）
     knowledge_base:
       kb_id: "68d7cdf5c6d4cf9e606c364e"
-      search_k: 1
+      search_k: 10
       filter_by_file_md5: null # 可选的文件过滤
 
   # LLM配置（用于答案生成）
@@ -33,7 +33,7 @@ evaluation:
     bm25_k: 3
     # 重排序配置
     reranker_config:
-      use_reranker: false
+      use_reranker: true
       reranker_type: "remote" # local, remote
       remote_rerank_config:
         api_key: "${SILICONFLOW_API_KEY}"
@@ -43,9 +43,9 @@ evaluation:
   # 评估指标配置
   metrics:
     - "ContextRelevance" # 上下文相关性
-    - "ContextPrecision" # 上下文精确度
-    - "ContextRecall" # 上下文召回率
-    - "Faithfulness" # 忠实度
+    # - "ContextPrecision" # 上下文精确度
+    # - "ContextRecall" # 上下文召回率
+    # - "Faithfulness" # 忠实度
     - "AnswerRelevancy" # 答案相关性
 
   # 评估器配置
@@ -53,9 +53,12 @@ evaluation:
     # 用于评估的LLM配置（可以与答案生成不同）
     judge_llm:
       supplier: "siliconflow"
-      model: "deepseek-ai/DeepSeek-V3"
+      model: "THUDM/glm-4-9b-chat"
       api_key: "${SILICONFLOW_API_KEY}"
       temperature: 0.0
+    judge_embedding:
+      supplier: "siliconflow"
+      model: "BAAI/bge-m3"
 
   # 输出配置
   output:

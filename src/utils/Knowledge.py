@@ -146,7 +146,7 @@ class Knowledge:
         rerank_top_n: int = 3,
         # 批次处理配置
         batch_size: int = 64,
-        max_concurrent_batches: int = 5,
+        max_concurrent_batches: int = 10,
     ):
         """
         初始化Knowledge类
@@ -228,7 +228,12 @@ class Knowledge:
         return self.db_manager.get_collection(collection_name)
 
     async def add_file_to_knowledge_base(
-        self, kb_id: str, file_path: str, file_name: str, file_md5: str
+        self,
+        kb_id: str,
+        file_path: str,
+        file_name: str,
+        file_md5: str,
+        is_metadata_to_add: bool = False,
     ) -> None:
         """
         异步将单个文件处理并添加到指定的知识库集合中
@@ -238,6 +243,7 @@ class Knowledge:
             file_path: 要处理的文件路径
             file_name: 原始文件名
             file_md5: 文件的MD5值，用于元数据
+            is_metadata_to_add: 是否添加元数据到文档块，默认False
         """
         logger.info(
             f"开始处理文件 {file_path} (MD5: {file_md5}) 并添加到知识库 {kb_id}..."
@@ -254,8 +260,8 @@ class Knowledge:
                 file_path,
                 splitter_type=self.splitter,
                 embeddings=self._embeddings,
-                chunk_size=400,
-                chunk_overlap=40,
+                chunk_size=500,  # 减小chunk_size以避免token超限问题
+                chunk_overlap=50,  # 相应减小overlap
             )
 
             documents = loader.load()
@@ -266,26 +272,28 @@ class Knowledge:
         except Exception as e:
             logger.error(f"加载或分块文件 {file_path} 时出错: {e}", exc_info=True)
             raise
-
-        # 准备并注入元数据
-        metadata_to_add = {
-            "knowledge_base_id": str(kb_id),
-            "source_file_path": file_path,
-            "source_file_md5": file_md5,
-            "source_file_name": file_name,
-        }
-        logger.debug(f"为文档块添加元数据: {metadata_to_add}")
-
+        logger.debug(f"是否添加元数据: {is_metadata_to_add}")
         processed_documents = []
-        for doc in documents:
-            if doc.metadata is None:
-                doc.metadata = {}
-            current_metadata = doc.metadata.copy()
-            current_metadata.update(metadata_to_add)
-            processed_documents.append(
-                Document(page_content=doc.page_content, metadata=current_metadata)
-            )
+        if is_metadata_to_add:
+            # 准备并注入元数据
+            metadata_to_add = {
+                "knowledge_base_id": str(kb_id),
+                # "source_file_path": file_path,
+                "source_file_md5": file_md5,
+                "source_file_name": file_name,
+            }
+            logger.debug(f"为文档块添加元数据: {metadata_to_add}")
 
+            for doc in documents:
+                if doc.metadata is None:
+                    doc.metadata = {}
+                current_metadata = doc.metadata.copy()
+                current_metadata.update(metadata_to_add)
+                processed_documents.append(
+                    Document(page_content=doc.page_content, metadata=current_metadata)
+                )
+        else:
+            processed_documents = documents
         # 添加到向量数据库
         try:
             collection = self.db_manager.get_collection(kb_id)

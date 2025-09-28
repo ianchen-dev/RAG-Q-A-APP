@@ -79,10 +79,18 @@ class JudgeLLMConfig:
 
 
 @dataclass
+class JudgeEmbeddingConfig:
+    supplier: str
+    model: str
+    api_key: Optional[str] = None
+
+
+@dataclass
 class EvaluatorConfig:
     """评估器配置"""
 
     judge_llm: JudgeLLMConfig
+    judge_embedding: JudgeEmbeddingConfig
 
 
 @dataclass
@@ -230,7 +238,10 @@ def _build_config(config_dict: Dict[str, Any]) -> EvaluationConfig:
     # 构建EvaluatorConfig
     eval_dict = config_dict["evaluator_config"]
     judge_llm = JudgeLLMConfig(**eval_dict["judge_llm"])
-    evaluator_config = EvaluatorConfig(judge_llm=judge_llm)
+    judge_embedding = JudgeEmbeddingConfig(**eval_dict["judge_embedding"])
+    evaluator_config = EvaluatorConfig(
+        judge_llm=judge_llm, judge_embedding=judge_embedding
+    )
 
     # 构建OutputConfig
     output_config = OutputConfig()

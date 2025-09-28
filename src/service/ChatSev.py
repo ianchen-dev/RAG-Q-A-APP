@@ -54,7 +54,7 @@ class ChatSev:
         self,
         knowledge: Optional[Knowledge] = None,
         prompt: str | None = None,
-        chat_history_max_length: Optional[int] = 8,
+        chat_history_max_length: Optional[int] = 1,
     ):
         self.knowledge = knowledge  # Store the initialized Knowledge instance
         # self.chat_history_max_length = chat_history_max_length # 暂时注释掉，因为 MongoDB History 不直接限制长度
@@ -83,13 +83,14 @@ class ChatSev:
         self.create_chat_prompt()  # 创建聊天模板
 
     def create_chat_prompt(self) -> None:
-        ai_info = self.prompt if self.prompt else "你是一个帮助人们解答各种问题的助手。"
+        system_prompt_zh = "你是一个乐于助人的助手"
+        system_prompt_en = "You are an assistant who helps people solve all kinds of problems.Response in English"  # noqa: F841
 
+        ai_info = self.prompt if self.prompt else system_prompt_zh
+        RAG_prompt_zh = """【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果根据检索到的上下文不能够回答问题，请你回答:'据检索到的上下文不足够回答该问题'。检索到的上下文如下：\n"""
+        RAG_prompt_en = """Note: When a user asks you a question, please answer it using the context retrieved below. If you cannot answer the question based on the retrieved context, please reply: "The retrieved context is not sufficient to answer this question." The retrieved context is as follows: \n"""  # pyright: ignore[reportUnusedVariable]  # noqa: F841
         # 知识库prompt--system
-        knowledge_system_prompt = (
-            f"{ai_info} 【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果根据检索到的上下文不能够回答问题，请你回答:'据检索到的上下文不足够回答该问题'。检索到的上下文如下：\n"
-            "{context}"
-        )
+        knowledge_system_prompt = f"{ai_info}{RAG_prompt_zh} {{context}}"
 
         self.knowledge_prompt = ChatPromptTemplate.from_messages(  # 知识库prompt
             [
