@@ -102,26 +102,18 @@ class RemoteRerankerCompressor(BaseDocumentCompressor):
         callbacks: Optional[Callbacks] = None,
     ) -> Sequence[Document]:
         """同步版本，包装异步版本。"""
-        try:
-            import asyncio
+        import asyncio
 
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-            result = loop.run_until_complete(
-                self.acompress_documents(documents, query, callbacks)
-            )
-            return result
-        except ImportError:
-            raise NotImplementedError(
-                "需要 asyncio 库来运行同步版本的 acompress_documents。"
-            )
-        except Exception as e:
-            logger.error(f"运行同步 compress_documents 时出错: {e}")
-            return documents
+        return asyncio.run(self.acompress_documents(documents, query, callbacks))
 
 
 # --- 重构后的 Knowledge 类 ---
@@ -314,6 +306,108 @@ class Knowledge:
             )
             raise
 
+    def _adjust_search_k_for_rerank(self, search_k: int) -> int:
+        """调整 search_k 参数以适应重排序需求"""
+        if self.use_reranker and search_k < self.rerank_top_n:
+            logger.warning(
+                f"配置的 search_k ({search_k}) 小于 rerank_top_n ({self.rerank_top_n})。"
+                f"将增加 search_k 到 {self.rerank_top_n}。"
+            )
+            return self.rerank_top_n
+        return search_k
+
+    def _create_vector_retriever(
+        self, collection, search_k: int, filter_dict: Optional[dict]
+    ) -> BaseRetriever:
+        """创建基础向量检索器"""
+        search_kwargs = {"k": search_k}
+        if filter_dict:
+            search_kwargs["filter"] = filter_dict
+            logger.info(f"向量检索器应用元数据过滤器: {filter_dict}")
+
+        retriever = collection.as_retriever(search_kwargs=search_kwargs)
+        logger.info(f"基础向量检索器配置: {search_kwargs}")
+        return retriever
+
+    async def _create_bm25_retriever(
+        self, kb_id: str, filter_dict: Optional[dict]
+    ) -> Optional[BM25Retriever]:
+        """创建 BM25 检索器"""
+        if not self.use_bm25:
+            return None
+
+        logger.info("BM25 混合检索已启用，正在准备 BM25 检索器...")
+        try:
+            all_documents = await self.db_manager.adapter.get_all_documents(
+                kb_id, filter_dict
+            )
+
+            if not all_documents:
+                logger.warning(
+                    f"从集合 '{kb_id}' 未获取到任何文档，无法创建 BM25 检索器。"
+                )
+                return None
+
+            retriever = BM25Retriever.from_documents(all_documents)
+            retriever.k = self.bm25_k
+            logger.info(f"BM25 检索器初始化成功，k={self.bm25_k}。")
+            return retriever
+
+        except Exception as e:
+            logger.error(f"初始化 BM25 检索器时出错: {e}", exc_info=True)
+            return None
+
+    def _create_rerank_compressor(self) -> Optional[BaseDocumentCompressor]:
+        """创建重排序压缩器"""
+        if not self.use_reranker:
+            return None
+
+        logger.info(
+            f"启用重排序 (类型: {self.reranker_type}, TopN: {self.rerank_top_n})"
+        )
+
+        if self.reranker_type == "remote":
+            if (
+                self.remote_rerank_config
+                and self.remote_rerank_config.get("api_key")
+            ):
+                compressor = RemoteRerankerCompressor(
+                    api_key=self.remote_rerank_config["api_key"],
+                    model_name=self.remote_rerank_config.get(
+                        "model", DEFAULT_REMOTE_RERANK_MODEL
+                    ),
+                    top_n=self.rerank_top_n,
+                )
+                logger.info("远程 RemoteRerankerCompressor 初始化成功。")
+                return compressor
+            else:
+                logger.error("无法初始化远程 Reranker: 缺少 API Key。")
+
+        return None
+
+    def _assemble_final_retriever(
+        self,
+        base_retriever: BaseRetriever,
+        bm25_retriever: Optional[BM25Retriever],
+        compressor: Optional[BaseDocumentCompressor],
+    ) -> BaseRetriever:
+        """组装最终检索器"""
+        # 应用重排序
+        if compressor:
+            vector_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor, base_retriever=base_retriever
+            )
+        else:
+            vector_retriever = base_retriever
+
+        # 应用 BM25 混合检索
+        if bm25_retriever:
+            return EnsembleRetriever(
+                retrievers=[bm25_retriever, vector_retriever], weights=[0.5, 0.5]
+            )
+
+        return vector_retriever
+
     async def get_retriever_for_knowledge_base(
         self, kb_id: str, filter_dict: Optional[dict] = None, search_k: int = 3
     ) -> BaseRetriever:
@@ -341,117 +435,27 @@ class Knowledge:
             logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
-        # 获取基础向量检索器
+        # 创建基础向量检索器
         collection = self.db_manager.get_collection(kb_id_str)
+        effective_search_k = self._adjust_search_k_for_rerank(search_k)
+        base_retriever = self._create_vector_retriever(
+            collection, effective_search_k, filter_dict
+        )
 
-        effective_search_k = search_k
-        if self.use_reranker and search_k < self.rerank_top_n:
-            logger.warning(
-                f"配置的 search_k ({search_k}) 小于 rerank_top_n ({self.rerank_top_n})。"
-                f"将增加 search_k 到 {self.rerank_top_n}。"
-            )
-            effective_search_k = self.rerank_top_n
+        # 创建 BM25 检索器
+        bm25_retriever = await self._create_bm25_retriever(kb_id_str, filter_dict)
 
-        vector_search_kwargs = {"k": effective_search_k}
-        if filter_dict:
-            vector_search_kwargs["filter"] = filter_dict
-            logger.info(f"向量检索器应用元数据过滤器: {filter_dict}")
+        # 创建重排序压缩器
+        try:
+            compressor = self._create_rerank_compressor()
+        except Exception as e:
+            logger.error(f"创建重排序器时出错: {e}", exc_info=True)
+            compressor = None
 
-        base_retriever = collection.as_retriever(search_kwargs=vector_search_kwargs)
-        logger.info(f"基础向量检索器配置: {vector_search_kwargs}")
-
-        # 初始化 BM25 检索器 (如果启用)
-        bm25_retriever: Optional[BM25Retriever] = None
-        if self.use_bm25:
-            logger.info("BM25 混合检索已启用，正在准备 BM25 检索器...")
-            try:
-                # 获取所有文档用于初始化BM25
-                all_documents = await self.db_manager.adapter.get_all_documents(
-                    kb_id_str, filter_dict
-                )
-
-                if not all_documents:
-                    logger.warning(
-                        f"从集合 '{kb_id_str}' 未获取到任何文档，无法创建 BM25 检索器。"
-                    )
-                else:
-                    bm25_retriever = BM25Retriever.from_documents(all_documents)
-                    bm25_retriever.k = self.bm25_k
-                    logger.info(f"BM25 检索器初始化成功，k={self.bm25_k}。")
-
-            except Exception as e:
-                logger.error(f"初始化 BM25 检索器时出错: {e}", exc_info=True)
-
-        # 确定最终检索器
-        final_retriever: BaseRetriever
-
-        if self.use_reranker:
-            # 使用重排序
-            logger.info(
-                f"启用重排序 (类型: {self.reranker_type}, TopN: {self.rerank_top_n})"
-            )
-            compressor: Optional[BaseDocumentCompressor] = None
-
-            try:
-                if self.reranker_type == "remote":
-                    if self.remote_rerank_config and self.remote_rerank_config.get(
-                        "api_key"
-                    ):
-                        compressor = RemoteRerankerCompressor(
-                            api_key=self.remote_rerank_config["api_key"],
-                            model_name=self.remote_rerank_config.get(
-                                "model", DEFAULT_REMOTE_RERANK_MODEL
-                            ),
-                            top_n=self.rerank_top_n,
-                        )
-                        logger.info("远程 RemoteRerankerCompressor 初始化成功。")
-                    else:
-                        logger.error("无法初始化远程 Reranker: 缺少 API Key。")
-
-                if not compressor:
-                    logger.warning("未能创建 Reranker Compressor。将跳过重排序步骤。")
-                    # 回退到非重排序逻辑
-                    if self.use_bm25 and bm25_retriever:
-                        final_retriever = EnsembleRetriever(
-                            retrievers=[bm25_retriever, base_retriever],
-                            weights=[0.5, 0.5],
-                        )
-                    else:
-                        final_retriever = base_retriever
-                else:
-                    # Compressor 创建成功
-                    reranked_vector_retriever = ContextualCompressionRetriever(
-                        base_compressor=compressor, base_retriever=base_retriever
-                    )
-
-                    if self.use_bm25 and bm25_retriever:
-                        final_retriever = EnsembleRetriever(
-                            retrievers=[bm25_retriever, reranked_vector_retriever],
-                            weights=[0.5, 0.5],
-                        )
-                    else:
-                        final_retriever = reranked_vector_retriever
-
-            except Exception as e:
-                logger.error(f"创建重排序器时出错: {e}", exc_info=True)
-                # 回退到基础检索器
-                if self.use_bm25 and bm25_retriever:
-                    final_retriever = EnsembleRetriever(
-                        retrievers=[bm25_retriever, base_retriever], weights=[0.5, 0.5]
-                    )
-                else:
-                    final_retriever = base_retriever
-
-        else:
-            # 不使用重排序
-            logger.info("重排序未启用。")
-            if self.use_bm25 and bm25_retriever:
-                final_retriever = EnsembleRetriever(
-                    retrievers=[bm25_retriever, base_retriever],
-                    weights=[0.5, 0.5],
-                )
-            else:
-                final_retriever = base_retriever
+        # 组装最终检索器
+        final_retriever = self._assemble_final_retriever(
+            base_retriever, bm25_retriever, compressor
+        )
 
         logger.info(f"最终返回的检索器类型: {type(final_retriever)}")
         return final_retriever
