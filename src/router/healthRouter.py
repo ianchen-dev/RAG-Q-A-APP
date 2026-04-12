@@ -25,7 +25,6 @@ class ConnectionStatsResponse(BaseModel):
     """连接统计响应模型"""
 
     mongodb: Dict[str, Any] = Field(..., description="MongoDB 连接信息")
-    redis: Dict[str, Any] = Field(..., description="Redis 连接信息")
 
 
 class OneAPIHealthResponse(BaseModel):
@@ -41,7 +40,7 @@ class OneAPIHealthResponse(BaseModel):
     "/health",
     response_model=HealthCheckResponse,
     summary="数据库健康检查",
-    description="检查 MongoDB 和 Redis 连接状态",
+    description="检查 MongoDB 连接状态",
 )
 async def health_check(
     force: bool = Query(False, description="是否强制执行检查，忽略时间间隔限制"),
@@ -74,17 +73,11 @@ async def health_check(
 
         # 判断总体状态
         mongodb_status = health_status.get("mongodb", {}).get("status", "unknown")
-        redis_status = health_status.get("redis", {}).get("status", "unknown")
 
-        if mongodb_status == "healthy" and redis_status == "healthy":
+        if mongodb_status == "healthy":
             overall_status = "healthy"
-        elif mongodb_status == "healthy" and redis_status in [
-            "unhealthy",
-            "not_initialized",
-        ]:
-            overall_status = "partial"  # MongoDB 正常，Redis 异常
         elif mongodb_status == "unhealthy":
-            overall_status = "unhealthy"  # MongoDB 异常
+            overall_status = "unhealthy"
         else:
             overall_status = "unknown"
 
@@ -95,7 +88,6 @@ async def health_check(
             timestamp=health_status.get("timestamp", ""),
             services={
                 "mongodb": health_status.get("mongodb", {}),
-                "redis": health_status.get("redis", {}),
             },
         )
 
@@ -119,7 +111,6 @@ async def quick_health_check():
         result = {
             "status": "initialized" if manager._initialized else "not_initialized",
             "mongodb_initialized": manager._mongodb_initialized,
-            "redis_initialized": manager._redis_initialized,
         }
 
         return result
@@ -151,7 +142,7 @@ async def get_connection_stats():
         logger.info("连接统计信息获取完成")
 
         return ConnectionStatsResponse(
-            mongodb=stats.get("mongodb", {}), redis=stats.get("redis", {})
+            mongodb=stats.get("mongodb", {})
         )
 
     except Exception as e:
@@ -212,20 +203,11 @@ async def get_database_config():
                 if manager._mongodb_config
                 else None,
             },
-            "redis": {
-                "initialized": manager._redis_initialized,
-                "config": manager._redis_config.copy()
-                if manager._redis_config
-                else None,
-            },
         }
 
         # 脱敏处理
         if config["mongodb"]["config"]:
             config["mongodb"]["config"].pop("url", None)
-
-        if config["redis"]["config"]:
-            config["redis"]["config"].pop("password", None)
 
         logger.info("数据库配置信息获取完成")
 
@@ -363,10 +345,8 @@ async def comprehensive_health_check(
         # 确定总体状态
         if isinstance(db_result, dict):
             db_status = db_result.get("mongodb", {}).get("status", "unknown")
-            redis_status = db_result.get("redis", {}).get("status", "unknown")
         else:
             db_status = "error"
-            redis_status = "error"
 
         if isinstance(oneapi_result, dict):
             oneapi_status = oneapi_result.get("overall_status", "unknown")
@@ -375,11 +355,11 @@ async def comprehensive_health_check(
 
         # 计算总体健康状态
         if all(
-            status == "healthy" for status in [db_status, redis_status, oneapi_status]
+            status == "healthy" for status in [db_status, oneapi_status]
         ):
             overall_status = "healthy"
         elif any(
-            status == "healthy" for status in [db_status, redis_status, oneapi_status]
+            status == "healthy" for status in [db_status, oneapi_status]
         ):
             overall_status = "partial"
         else:

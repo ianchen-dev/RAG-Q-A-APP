@@ -114,7 +114,6 @@ from src.config.database_manager import (
     init_databases,
 )
 from src.models.user import User  # 导入 User 模型
-from src.service.knowledgeSev import load_all_knowledge_bases_to_cache
 from src.utils.pwdHash import get_password_hash  # 导入密码哈希函数
 
 
@@ -140,19 +139,7 @@ async def lifespan(app: FastAPI):
         await init_databases()
         logger.info("数据库连接管理器初始化完成")
 
-        # 2. 预加载知识库缓存
-        try:
-            manager = await get_database_manager()
-            await manager.get_redis_client()  # 确认 Redis 客户端可用
-            logger.info("Redis 客户端获取成功，正在预加载知识库缓存...")
-            await load_all_knowledge_bases_to_cache()
-            logger.info("知识库缓存预加载完成")
-        except RuntimeError as e:
-            logger.warning(f"无法获取 Redis 客户端，跳过知识库缓存预加载: {e}")
-        except Exception as e:
-            logger.error(f"预加载知识库缓存时发生错误: {e}", exc_info=True)
-
-        # 3. 创建 root 用户（如果不存在）
+        # 2. 创建 root 用户（如果不存在）
         try:
             root_user = await User.find_one(User.username == "root")
             if not root_user:

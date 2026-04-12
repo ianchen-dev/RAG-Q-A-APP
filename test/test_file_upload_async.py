@@ -12,64 +12,46 @@ Author: hbchen
 Date: 2025-09-19
 """
 
-# 在导入任何模块之前先加载环境变量
 import os
+import tempfile
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from dotenv import load_dotenv
+from fastapi import UploadFile
 
 # 加载环境变量 - 必须在导入其他模块之前
 load_dotenv()  # 加载 .env 基础配置
 load_dotenv(dotenv_path=".env.dev", override=True)
 
-import asyncio
-import tempfile
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi.testclient import TestClient
-from fastapi import UploadFile
-import json
-import uuid
-from datetime import datetime
-
-# 首先加载环境变量
-from dotenv import load_dotenv
-load_dotenv()  # 加载 .env 基础配置
-load_dotenv(dotenv_path=".env.dev", override=True)
-
 # 导入被测试的模块 - 现在环境变量已经加载
-from src.service.file_queue_manager import FileQueueManager, FileProcessingTask
+from src.service.file_queue_manager import FileProcessingTask, FileQueueManager
 from src.service.knowledgeSev import process_uploaded_file_async
-from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
+
 
 class TestFileQueueManager:
     """文件队列管理器测试"""
-    
+
     @pytest.fixture
     async def queue_manager(self):
         """创建队列管理器实例"""
         manager = FileQueueManager(max_queue_size=10, max_workers=2)
-        # Mock Redis 客户端
-        manager.redis_client = AsyncMock()
         await manager.initialize()
         yield manager
         await manager.stop_workers()
-    
+
     @pytest.mark.asyncio
     async def test_queue_manager_initialization(self):
         """测试队列管理器初始化"""
         manager = FileQueueManager(max_queue_size=5, max_workers=2)
-        
-        # Mock get_redis_client
-        with patch('src.service.file_queue_manager.get_redis_client') as mock_get_redis:
-            mock_redis = AsyncMock()
-            mock_get_redis.return_value = mock_redis
-            
-            await manager.initialize()
-            
-            assert manager.redis_client is not None
-            assert manager.max_queue_size == 5
-            assert manager.max_workers == 2
-            assert not manager.is_running
-    
+
+        await manager.initialize()
+
+        assert manager.max_queue_size == 5
+        assert manager.max_workers == 2
+        assert not manager.is_running
+
     @pytest.mark.asyncio
     async def test_add_task_to_queue(self, queue_manager):
         """测试添加任务到队列"""
@@ -77,69 +59,63 @@ class TestFileQueueManager:
         file_path = "/tmp/test.txt"
         file_name = "test.txt"
         file_md5 = "abc123"
-        
-        # Mock Redis setex
-        queue_manager.redis_client.setex = AsyncMock()
-        
+
         task_id = await queue_manager.add_task(
             kb_id=kb_id,
             file_path=file_path,
             file_name=file_name,
             file_md5=file_md5
         )
-        
+
         assert task_id is not None
         assert queue_manager.file_queue.qsize() == 1
-        
-        # 验证 Redis 调用
-        queue_manager.redis_client.setex.assert_called_once()
-    
+
     @pytest.mark.asyncio
     async def test_get_task_status(self, queue_manager):
         """测试获取任务状态"""
         task_id = "test-task-id"
-        expected_status = {
-            "task_id": task_id,
-            "status": "processing",
-            "file_name": "test.txt"
-        }
-        
-        # Mock Redis get
-        queue_manager.redis_client.get = AsyncMock(
-            return_value=json.dumps(expected_status)
+
+        # 创建任务对象并添加到内存
+        task = FileProcessingTask(
+            task_id=task_id,
+            kb_id="kb-id",
+            file_path="/tmp/test.txt",
+            file_name="test.txt",
+            file_md5="abc123",
+            status="processing"
         )
-        
+        queue_manager._tasks[task_id] = task
+
         status = await queue_manager.get_task_status(task_id)
-        
-        assert status == expected_status
-        queue_manager.redis_client.get.assert_called_once_with(f"file_task:{task_id}")
-    
+
+        assert status["task_id"] == task_id
+        assert status["status"] == "processing"
+
     @pytest.mark.asyncio
     async def test_get_queue_status(self, queue_manager):
         """测试获取队列状态"""
         # 添加一个任务到队列
-        queue_manager.redis_client.setex = AsyncMock()
         await queue_manager.add_task("kb1", "/tmp/test.txt", "test.txt", "abc123")
-        
+
         status = await queue_manager.get_queue_status()
-        
+
         assert status["queue_size"] == 1
         assert status["max_queue_size"] == 10
         assert status["workers_count"] == 0  # 未启动工作进程
         assert not status["is_running"]
-    
+
     @pytest.mark.asyncio
     async def test_start_and_stop_workers(self, queue_manager):
         """测试启动和停止工作进程"""
         # 启动工作进程
         await queue_manager.start_workers()
-        
+
         assert queue_manager.is_running
         assert len(queue_manager.workers) == 2
-        
+
         # 停止工作进程
         await queue_manager.stop_workers()
-        
+
         assert not queue_manager.is_running
         assert len(queue_manager.workers) == 0
 
@@ -295,15 +271,12 @@ class TestIntegration:
     async def test_full_async_workflow_simulation(self):
         """模拟完整的异步工作流程"""
         # 这是一个模拟测试，展示完整的异步处理流程
-        
+
         # 1. 初始化队列管理器
         queue_manager = FileQueueManager(max_queue_size=5, max_workers=1)
-        queue_manager.redis_client = AsyncMock()
-        queue_manager.redis_client.setex = AsyncMock()
-        queue_manager.redis_client.get = AsyncMock()
-        
+
         await queue_manager.initialize()
-        
+
         try:
             # 2. 添加任务到队列
             task_id = await queue_manager.add_task(
@@ -312,22 +285,22 @@ class TestIntegration:
                 file_name="test.txt",
                 file_md5="abc123"
             )
-            
+
             assert task_id is not None
             assert queue_manager.file_queue.qsize() == 1
-            
+
             # 3. 检查队列状态
             status = await queue_manager.get_queue_status()
             assert status["queue_size"] == 1
-            
+
             # 4. 模拟任务处理（不启动实际的工作进程）
             task = await queue_manager.file_queue.get()
             assert task.file_name == "test.txt"
             assert task.status == "queued"
-            
+
             # 标记任务完成
             queue_manager.file_queue.task_done()
-            
+
         finally:
             await queue_manager.stop_workers()
 

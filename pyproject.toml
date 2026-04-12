@@ -20,7 +20,6 @@ dependencies = [
     "motor>=3.7.0",
     "beanie>=1.29.0",
     "pymongo",
-    "redis>=5.2.1",
     # LangChain 核心
     "langchain>=0.3.21",
     "langchain-core",

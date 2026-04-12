@@ -1,17 +1,13 @@
-import json  # 导入 json
 import logging  # 导入 logging
 import os
 import shutil  # 用于文件操作和删除目录
 import tempfile  # 用于创建临时文件
-from datetime import datetime, timedelta  # 导入 datetime 和 timedelta 模块
-from typing import Union
+from datetime import datetime  # 导入 datetime 模块
 
-import redis.asyncio as aioredis  # 导入 aioredis
 from bson import ObjectId  # 用于验证 kb_id
 from fastapi import HTTPException, UploadFile
 from langchain_core.tools import tool
 
-from src.config.database_manager import get_database_manager  # 导入数据库管理器
 from src.models.knowledgeBase import (
     KnowledgeBase as KnowledgeBaseModel,
 )
@@ -21,80 +17,9 @@ from src.utils.Knowledge import Knowledge
 chroma_dir = "chroma/"  # 确保这里有定义
 logger = logging.getLogger(__name__)  # 获取 logger 实例
 
-# --- Redis 缓存相关常量 ---
-KB_CACHE_PREFIX = "kb:"  # 知识库缓存键前缀
-KB_CACHE_TTL_SECONDS = int(timedelta(days=1).total_seconds())  # 缓存 TTL: 1天
-
-
-# --- Redis 缓存辅助函数 ---
-async def _set_kb_cache(kb_doc: KnowledgeBaseModel):
-    """将单个 KnowledgeBase 文档存入 Redis 缓存"""
-    if not kb_doc or not kb_doc.id:
-        return
-    try:
-        manager = await get_database_manager()
-        redis = await manager.get_redis_client()
-        kb_id_str = str(kb_doc.id)
-        cache_key = f"{KB_CACHE_PREFIX}{kb_id_str}"
-        # 将 Beanie 文档转换为字典，然后序列化为 JSON
-        # 使用 .dict() 方法，并设置 exclude={'id'} 防止重复存储id（如果需要）
-        # 或者直接使用 json.dumps 和 default=str 处理 ObjectId 和 datetime
-        kb_data_dict = kb_doc.model_dump(mode="json")  # Pydantic V2 推荐 model_dump
-        # kb_data_dict['id'] = kb_id_str # 确保 ID 是字符串格式
-        cache_value = json.dumps(kb_data_dict)
-
-        await redis.set(cache_key, cache_value, ex=KB_CACHE_TTL_SECONDS)
-        logger.debug(f"知识库 {kb_id_str} 缓存已设置，TTL: {KB_CACHE_TTL_SECONDS} 秒")
-    except aioredis.RedisError as e:
-        logger.error(f"设置知识库 {kb_doc.id} 的 Redis 缓存失败: {e}")
-    except Exception as e:
-        logger.error(
-            f"序列化或缓存知识库 {kb_doc.id} 时发生未知错误: {e}", exc_info=True
-        )
-
-
-async def _delete_kb_cache(kb_id: Union[str, ObjectId]):
-    """从 Redis 缓存中删除指定的 KnowledgeBase"""
-    try:
-        manager = await get_database_manager()
-        redis = await manager.get_redis_client()
-        kb_id_str = str(kb_id)
-        cache_key = f"{KB_CACHE_PREFIX}{kb_id_str}"
-        deleted_count = await redis.delete(cache_key)
-        if deleted_count > 0:
-            logger.info(f"知识库 {kb_id_str} 缓存已删除。")
-        else:
-            logger.warning(f"尝试删除知识库 {kb_id_str} 缓存，但键不存在。")
-    except aioredis.RedisError as e:
-        logger.error(f"删除知识库 {kb_id} 的 Redis 缓存失败: {e}")
-    except Exception as e:
-        logger.error(f"删除知识库 {kb_id} 缓存时发生未知错误: {e}", exc_info=True)
-
-
-# --- 缓存预加载函数 ---
-async def load_all_knowledge_bases_to_cache():
-    """从 MongoDB 加载所有 KnowledgeBase 文档并写入 Redis 缓存。"""
-    try:
-        manager = await get_database_manager()
-        await manager.get_redis_client()  # 确保 Redis 已连接
-        logger.info("开始从 MongoDB 加载知识库数据到 Redis 缓存...")
-        kb_docs = await KnowledgeBaseModel.find_all().to_list()
-        count = 0
-        for kb_doc in kb_docs:
-            await _set_kb_cache(kb_doc)
-            count += 1
-        logger.info(f"成功缓存了 {count} 个知识库。")
-    except aioredis.RedisError as e:
-        logger.error(f"访问 Redis 时出错，无法加载知识库缓存: {e}")
-    except Exception as e:
-        logger.error(f"加载知识库到缓存时发生错误: {e}", exc_info=True)
-
-
-# --- 修改后的服务函数 ---
-
 
 async def create_knowledge(knowledge_base_data, current_user) -> KnowledgeBaseModel:
-    """创建新的知识库记录，并添加到 Redis 缓存"""
+    """创建新的知识库记录"""
     # 确保 embedding_config 数据被正确传递和使用
     embedding_config_data = knowledge_base_data.embedding_config
     new_knowledge_base = KnowledgeBaseModel(
@@ -107,9 +32,6 @@ async def create_knowledge(knowledge_base_data, current_user) -> KnowledgeBaseMo
     )
     await new_knowledge_base.insert()
 
-    # 添加到缓存
-    await _set_kb_cache(new_knowledge_base)
-
     return new_knowledge_base
 
 
@@ -117,7 +39,7 @@ async def process_uploaded_file(
     kb_id: str,
     file: UploadFile,
 ) -> dict:
-    """处理上传的文件，进行向量化并更新知识库记录和 Redis 缓存"""
+    """处理上传的文件，进行向量化并更新知识库记录"""
 
     # 1. 验证 kb_id 并查找 KnowledgeBase 文档
     if not ObjectId.is_valid(kb_id):
@@ -209,21 +131,6 @@ async def process_uploaded_file(
         logger.info(
             f"文件 {file.filename} (MD5: {file_md5}) 元数据已添加到 MongoDB 知识库 {kb_id}。"
         )
-
-        # 8. 更新 Redis 缓存 (在 MongoDB 更新之后)
-        # 重新获取最新文档并更新缓存
-        try:
-            updated_kb_doc = await KnowledgeBaseModel.get(ObjectId(kb_id))
-            if updated_kb_doc:
-                await _set_kb_cache(updated_kb_doc)  # 更新缓存
-            else:
-                # 如果获取失败，可能是文档刚被删除等边缘情况
-                logger.warning(f"更新缓存失败：无法在更新后重新获取知识库 {kb_id}")
-                # 也可以尝试删除旧缓存以避免脏数据
-                await _delete_kb_cache(kb_id)
-        except Exception as cache_err:
-            logger.error(f"更新知识库 {kb_id} 的 Redis 缓存时失败: {cache_err}")
-            # 缓存失败不应阻止主流程成功返回，但需要记录
 
         return {
             "message": f"文件 '{file.filename}' 成功上传并处理到知识库 '{knowledge_base_doc.title}'。",
@@ -344,18 +251,6 @@ async def process_uploaded_file_sync(
         logger.info(
             f"文件 {file_name} (MD5: {file_md5}) 元数据已添加到 MongoDB 知识库 {kb_id}。"
         )
-
-        # 7. 更新 Redis 缓存 (在 MongoDB 更新之后)
-        try:
-            updated_kb_doc = await KnowledgeBaseModel.get(ObjectId(kb_id))
-            if updated_kb_doc:
-                await _set_kb_cache(updated_kb_doc)  # 更新缓存
-            else:
-                logger.warning(f"更新缓存失败：无法在更新后重新获取知识库 {kb_id}")
-                await _delete_kb_cache(kb_id)
-        except Exception as cache_err:
-            logger.error(f"更新知识库 {kb_id} 的 Redis 缓存时失败: {cache_err}")
-            # 缓存失败不应阻止主流程成功返回，但需要记录
 
         return {
             "message": f"文件 '{file_name}' 成功处理到知识库 '{knowledge_base_doc.title}'。",
@@ -504,72 +399,15 @@ async def get_knowledge_list_tool():
 
 
 async def get_knowledge_list():
-    """获取所有知识库列表，优先从 Redis 缓存读取。
-    如果缓存为空，则从 MongoDB 加载并更新缓存。
-    """
-    manager = await get_database_manager()
-    redis = await manager.get_redis_client()
-    knowledge_list_from_cache = []
-    cached_kb_keys_bytes = [
-        key async for key in redis.scan_iter(match=f"{KB_CACHE_PREFIX}*")
-    ]
-
-    if cached_kb_keys_bytes:
-        logger.debug(f"从 Redis 缓存中找到 {len(cached_kb_keys_bytes)} 个知识库键。")
-        # MGET expects a list of keys
-        cached_values = await redis.mget(cached_kb_keys_bytes)
-        for key_bytes, value_bytes in zip(cached_kb_keys_bytes, cached_values):
-            key_str = key_bytes  # Keys from Redis are already strings if decode_responses=True
-            if value_bytes:
-                try:
-                    # Values from Redis are also likely strings if decode_responses=True
-                    kb_data_str = value_bytes
-                    kb_data = json.loads(kb_data_str)
-                    # KnowledgeBaseModel will handle an 'id' field that is a string representation of ObjectId
-                    knowledge_list_from_cache.append(KnowledgeBaseModel(**kb_data))
-                except json.JSONDecodeError:
-                    logger.warning(
-                        f"无法解析 Redis 缓存中的知识库数据 (键: {key_str}). 跳过此条目。"
-                    )
-                except (
-                    Exception
-                ) as e:  # Catch Pydantic validation errors or other issues
-                    logger.warning(
-                        f"从 Redis 缓存数据创建 KnowledgeBaseModel 实例失败 (键: {key_str}): {e}. 跳过此条目。"
-                    )
-            else:
-                logger.warning(
-                    f"Redis 键 {key_str} 的值为空，可能已过期或在 scan 和 mget 之间被删除。"
-                )
-
-    # 如果成功从缓存加载了任何数据，则使用缓存数据
-    if knowledge_list_from_cache:
-        logger.info(
-            f"成功从 Redis 缓存加载了 {len(knowledge_list_from_cache)} 个知识库。"
-        )
-        return knowledge_list_from_cache
-
-    # Fallback: If cache is empty
-    logger.info("Redis 缓存为空，将从 MongoDB 加载知识库列表...")
+    """获取所有知识库列表，直接从 MongoDB 查询"""
     db_knowledge_list = await KnowledgeBaseModel.find_all().to_list()
     logger.info(f"从 MongoDB 加载了 {len(db_knowledge_list)} 个知识库。")
-
-    if db_knowledge_list:
-        # Update cache with the fresh data from DB
-        logger.info(
-            f"开始将 {len(db_knowledge_list)} 个知识库更新/添加到 Redis 缓存..."
-        )
-        for kb_doc in db_knowledge_list:
-            await _set_kb_cache(kb_doc)  # _set_kb_cache handles the actual redis.set
-        logger.info(
-            f"已成功将 {len(db_knowledge_list)} 个知识库更新/添加到 Redis 缓存。"
-        )
 
     return db_knowledge_list
 
 
 async def delete_knowledge_base(kb_id: str) -> None:
-    """删除指定的知识库及其关联的 Chroma 数据和 Redis 缓存"""
+    """删除指定的知识库及其关联的 Chroma 数据"""
     if not ObjectId.is_valid(kb_id):
         raise FileNotFoundError(f"无效的知识库 ID 格式: {kb_id}")
 
@@ -615,14 +453,11 @@ async def delete_knowledge_base(kb_id: str) -> None:
 
     except Exception as e:
         logger.error(f"删除向量数据库集合 '{kb_id_str}' 时出错: {e}")
-        # 记录错误，但继续尝试删除缓存
-
-    # 3. 删除 Redis 缓存
-    await _delete_kb_cache(kb_id)
+        # 记录错误
 
 
 async def delete_file_from_knowledge_base(kb_id: str, file_md5: str) -> dict:
-    """从指定知识库中删除特定文件（基于MD5），并更新 Redis 缓存"""
+    """从指定知识库中删除特定文件（基于MD5）"""
     logger.info(f"尝试从知识库 {kb_id} 删除文件 MD5: {file_md5}")
 
     # 1. 验证 kb_id
@@ -688,15 +523,5 @@ async def delete_file_from_knowledge_base(kb_id: str, file_md5: str) -> dict:
             await knowledge_util.close()
     else:
         logger.info(f"向量数据库集合 '{kb_id_str}' 不存在，无需删除向量。")
-
-    # 更新 Redis 缓存 (无论 Chroma 是否删除，只要 MongoDB 更新了就要更新缓存)
-    # 重新获取最新文档来更新缓存
-    updated_kb_doc = await KnowledgeBaseModel.get(ObjectId(kb_id))
-    if updated_kb_doc:
-        await _set_kb_cache(updated_kb_doc)
-    else:
-        # 如果 KB 意外被删除，也尝试删除缓存
-        logger.warning(f"知识库 {kb_id} 在删除文件后找不到了，将尝试删除其缓存。")
-        await _delete_kb_cache(kb_id)
 
     return {"message": f"文件 MD5 {file_md5} 已成功从知识库 {kb_id} 删除。"}

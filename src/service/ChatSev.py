@@ -10,7 +10,6 @@ from typing import (
     Union,
 )
 
-import redis.asyncio as aioredis  # 导入 aioredis
 from bson import ObjectId
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains.retrieval import create_retrieval_chain
@@ -30,15 +29,8 @@ from langchain_mongodb.chat_message_histories import (
     MongoDBChatMessageHistory,  # f-历史会话-持久化会话历史数据
 )
 
-# Redis 缓存
-from src.config.database_manager import get_database_manager
-
 # Beanie模型
 from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
-from src.service.knowledgeSev import (  # 导入缓存设置函数和前缀
-    KB_CACHE_PREFIX,
-    _set_kb_cache,
-)
 from src.utils.Knowledge import Knowledge
 
 # utils
@@ -119,52 +111,22 @@ class ChatSev:
             collection_name=self.mongo_collection_name,
         )
 
-    async def _get_kb_from_cache(self, knowledge_base_id: str) -> Optional[Dict]:
-        """Retrieve knowledge base metadata from Redis cache.
+    def _create_fallback_chain(
+        self, chat, display_name: str
+    ) -> Tuple[RunnableSerializable, str, bool]:
+        """Create a fallback normal chat chain with the specified display name.
 
         Args:
-            knowledge_base_id: The knowledge base ID to retrieve
+            chat: The LLM instance
+            display_name: The display name for the context
 
         Returns:
-            Dictionary containing knowledge base data if found, None otherwise
+            Tuple of (base_chain, context_display_name, is_dict_output_for_history)
         """
-        try:
-            if ObjectId.is_valid(knowledge_base_id):
-                manager = await get_database_manager()
-                redis = await manager.get_redis_client()
-                cache_key = f"{KB_CACHE_PREFIX}{knowledge_base_id}"
-                cached_data_str = await redis.get(cache_key)
-                if cached_data_str:
-                    kb_data = json.loads(cached_data_str)  # 反序列化 JSON
-                    logger.info(f"从 Redis 缓存命中知识库: {knowledge_base_id}")
-                    return kb_data
-                else:
-                    logger.info(f"Redis 缓存未命中知识库: {knowledge_base_id}")
-                    return None
-            else:
-                logger.warning(
-                    f"提供的 knowledge_base_id 无效 (格式错误): {knowledge_base_id}"
-                )
-                return None
+        base_chain = self.normal_prompt | chat
+        return base_chain, display_name, False
 
-        except aioredis.RedisError as e:
-            logger.error(
-                f"访问 Redis 缓存知识库 {knowledge_base_id} 时出错: {e}. 将尝试从 MongoDB 回退。"
-            )
-            return None
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"解析 Redis 缓存中的知识库 {knowledge_base_id} 数据时出错: {e}. 将尝试从 MongoDB 回退。"
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                f"读取或解析 Redis 缓存 {knowledge_base_id} 时发生未知错误: {e}",
-                exc_info=True,
-            )
-            return None
-
-    def _create_fallback_chain(
+    async def _determine_context_and_base_chain(
         self, chat, display_name: str
     ) -> Tuple[RunnableSerializable, str, bool]:
         """Create a fallback normal chat chain with the specified display name.
@@ -211,11 +173,10 @@ class ChatSev:
             logging.info(
                 f"使用知识库: {knowledge_base_id}, 文件过滤器 MD5: {filter_by_file_md5}"
             )
-            kb_data = await self._get_kb_from_cache(knowledge_base_id)
-
-            # 如果缓存未命中或出错，则从 MongoDB 回退
-            if kb_data is None and ObjectId.is_valid(knowledge_base_id):
-                logger.info(f"尝试从 MongoDB 获取知识库: {knowledge_base_id}")
+            # 直接从 MongoDB 获取知识库数据
+            kb_data = None
+            if ObjectId.is_valid(knowledge_base_id):
+                logger.info(f"从 MongoDB 获取知识库: {knowledge_base_id}")
                 try:
                     knowledge_base_doc = await KnowledgeBaseModel.get(
                         ObjectId(knowledge_base_id)
@@ -224,10 +185,6 @@ class ChatSev:
                         logger.info(f"从 MongoDB 成功获取知识库: {knowledge_base_id}")
                         # 将 Beanie 文档转换为字典，以便后续逻辑统一处理
                         kb_data = knowledge_base_doc.model_dump(mode="json")
-                        # 尝试写回缓存 (缓存自愈)
-                        await _set_kb_cache(
-                            knowledge_base_doc
-                        )  # 使用 knowledgeSev 中的辅助函数
                     else:
                         logger.warning(
                             f"在 MongoDB 中未找到 ID 为 {knowledge_base_id} 的知识库文档。"
@@ -235,7 +192,7 @@ class ChatSev:
                 except Exception as e:
                     logger.error(f"查询 MongoDB 知识库 {knowledge_base_id} 时出错: {e}")
 
-            # 使用获取到的 kb_data (来自缓存或 DB) 设置上下文名称
+            # 使用获取到的 kb_data 设置上下文名称
             if kb_data:
                 kb_title = kb_data.get("title", "未知知识库")
                 if filter_by_file_md5:
@@ -255,15 +212,15 @@ class ChatSev:
                                 break
                     if not file_found:
                         logger.warning(
-                            f"在知识库 {knowledge_base_id} (来自 {'缓存' if cached_data_str else 'DB'}) 中未找到 MD5 为 {filter_by_file_md5} 的文件，将显示知识库名称。"
+                            f"在知识库 {knowledge_base_id} 中未找到 MD5 为 {filter_by_file_md5} 的文件，将显示知识库名称。"
                         )
                         context_display_name = f"知识库：{kb_title}"
                 else:
                     context_display_name = f"知识库：{kb_title}"
             else:
-                # 如果缓存和 DB 都获取失败
+                # 如果 DB 获取失败
                 logger.warning(
-                    f"无法从缓存或 MongoDB 获取知识库 {knowledge_base_id} 的元数据。"
+                    f"无法从 MongoDB 获取知识库 {knowledge_base_id} 的元数据。"
                 )
                 context_display_name = "标准对话 (知识库数据错误)"
 

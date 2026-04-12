@@ -5,7 +5,7 @@
 主要功能：
 1. 异步队列管理 - 使用 asyncio.Queue 实现文件处理任务队列
 2. 多消费者并发处理 - 支持多个工作进程同时处理文件
-3. 任务状态跟踪 - Redis 存储任务状态，支持前端查询
+3. 任务状态跟踪 - 内存存储任务状态，支持前端查询
 4. 错误处理和重试 - 处理失败的任务支持重试机制
 5. 优雅关闭 - 支持服务关闭时的队列清理
 
@@ -15,19 +15,15 @@ Date: 2025-09-19
 
 import asyncio
 import logging
-import uuid
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-import json
 import traceback
+import uuid
+from datetime import datetime
+from typing import Dict, List, Optional
 
-from fastapi import UploadFile
-import redis.asyncio as redis
-
-from src.config.database_manager import get_redis_client
-from src.service.knowledgeSev import process_uploaded_file_sync
-from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
 from bson import ObjectId
+
+from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
+from src.service.knowledgeSev import process_uploaded_file_sync
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -61,7 +57,7 @@ class FileProcessingTask:
         self.error_message = error_message
 
     def to_dict(self) -> Dict:
-        """转换为字典格式，用于 Redis 存储"""
+        """转换为字典格式"""
         return {
             "task_id": self.task_id,
             "kb_id": self.kb_id,
@@ -113,20 +109,11 @@ class FileQueueManager:
         self.file_queue: asyncio.Queue = asyncio.Queue(maxsize=max_queue_size)
         self.workers: List[asyncio.Task] = []
         self.is_running = False
-        self.redis_client: Optional[redis.Redis] = None
-
-        # Redis 键名前缀
-        self.task_key_prefix = "file_task:"
-        self.task_list_key = "file_tasks"
+        self._tasks: Dict[str, FileProcessingTask] = {}
 
     async def initialize(self):
-        """初始化队列管理器，获取 Redis 连接"""
-        try:
-            self.redis_client = await get_redis_client()
-            logger.info("文件队列管理器初始化成功")
-        except Exception as e:
-            logger.error(f"文件队列管理器初始化失败: {e}")
-            raise
+        """初始化队列管理器"""
+        logger.info("文件队列管理器初始化成功")
 
     async def start_workers(self):
         """启动工作进程"""
@@ -196,7 +183,7 @@ class FileQueueManager:
             # 将任务添加到队列（非阻塞）
             self.file_queue.put_nowait(task)
 
-            # 保存任务状态到 Redis
+            # 保存任务状态到内存
             await self._save_task_status(task)
 
             logger.info(f"任务 {task_id} 已添加到队列，文件: {file_name}")
@@ -219,20 +206,10 @@ class FileQueueManager:
         Returns:
             任务状态字典，如果任务不存在则返回 None
         """
-        if not self.redis_client:
-            return None
-
-        try:
-            task_key = f"{self.task_key_prefix}{task_id}"
-            task_data = await self.redis_client.get(task_key)
-
-            if task_data:
-                return json.loads(task_data)
-            return None
-
-        except Exception as e:
-            logger.error(f"获取任务状态失败: {e}")
-            return None
+        task = self._tasks.get(task_id)
+        if task:
+            return task.to_dict()
+        return None
 
     async def get_queue_status(self) -> Dict:
         """
@@ -355,22 +332,13 @@ class FileQueueManager:
 
     async def _save_task_status(self, task: FileProcessingTask):
         """
-        保存任务状态到 Redis
+        保存任务状态到内存
 
         Args:
             task: 文件处理任务
         """
-        if not self.redis_client:
-            return
-
         try:
-            task_key = f"{self.task_key_prefix}{task.task_id}"
-            task_data = json.dumps(task.to_dict(), ensure_ascii=False)
-
-            # 设置过期时间（24小时）
-            expire_time = 24 * 60 * 60
-            await self.redis_client.setex(task_key, expire_time, task_data)
-
+            self._tasks[task.task_id] = task
         except Exception as e:
             logger.error(f"保存任务状态失败: {e}")
 
