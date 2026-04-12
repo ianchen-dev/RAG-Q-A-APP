@@ -88,9 +88,7 @@ class StreamHandler:
         elif isinstance(answer_part, BaseMessage) and hasattr(answer_part, "content"):
             return answer_part.content, None
         elif answer_part is not None:  # Avoid processing None
-            logging.debug(
-                f"流中 'answer' 字段的非预期类型: {type(answer_part)}"
-            )
+            logging.debug(f"流中 'answer' 字段的非预期类型: {type(answer_part)}")
         return None, None
 
     def _handle_context_chunk(
@@ -109,13 +107,9 @@ class StreamHandler:
 
         if isinstance(context_part, list):
             for doc in context_part:
-                processed_context.append(
-                    self.serialize_document_fn(doc)
-                )
+                processed_context.append(self.serialize_document_fn(doc))
         else:
-            logging.warning(
-                f"context_part is not a list as expected: {context_part}"
-            )
+            logging.warning(f"context_part is not a list as expected: {context_part}")
             # Handle case where context_part is a single dict
             if isinstance(context_part, dict):
                 processed_context.append(context_part)
@@ -128,12 +122,8 @@ class StreamHandler:
                 )
 
         # Convert processed_context to formatted JSON string
-        content_json_str = json.dumps(
-            processed_context, indent=2, ensure_ascii=False
-        )
-        logging.info(
-            f"发送给前端的格式化上下文JSON: {content_json_str}"
-        )
+        content_json_str = json.dumps(processed_context, indent=2, ensure_ascii=False)
+        logging.info(f"发送给前端的格式化上下文JSON: {content_json_str}")
 
         context_data = {
             "type": "tool_result",
@@ -178,9 +168,7 @@ class StreamHandler:
                     "original_doc": str(doc),
                 }
         except Exception as e:
-            logging.error(
-                f"序列化 Document 对象时发生未知错误: {e}. 文档内容: {doc}"
-            )
+            logging.error(f"序列化 Document 对象时发生未知错误: {e}. 文档内容: {doc}")
             return {
                 "error": "Unknown serialization error",
                 "original_doc": str(doc),
@@ -218,8 +206,6 @@ class StreamHandler:
             # Direct string output
             content_piece = chunk
         else:
-            logging.warning(
-                f"流中接收到未知类型的块: {type(chunk)}, 内容: {chunk}"
-            )
+            logging.warning(f"流中接收到未知类型的块: {type(chunk)}, 内容: {chunk}")
 
         return content_piece, context_data

@@ -52,9 +52,7 @@ class ChatHistoryManager:
         self.normal_prompt = normal_prompt
         self.knowledge_prompt = knowledge_prompt
 
-    def get_session_chat_history(
-        self, session_id: str
-    ) -> BaseChatMessageHistory:
+    def get_session_chat_history(self, session_id: str) -> BaseChatMessageHistory:
         """Get MongoDB chat history instance for a session.
 
         Args:

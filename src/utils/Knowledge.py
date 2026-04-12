@@ -4,116 +4,26 @@
 
 import logging
 from hashlib import md5
-from typing import Any, Dict, List, Literal, Optional, Sequence
+from typing import Any, Dict, List, Literal, Optional
 
 from langchain.retrievers import (
     ContextualCompressionRetriever,
     EnsembleRetriever,
 )
 from langchain_community.retrievers import BM25Retriever
-from langchain_core.callbacks import Callbacks
 from langchain_core.documents import (
     BaseDocumentCompressor,
     Document,
 )
 from langchain_core.retrievers import BaseRetriever
 
+from src.components.reranker_compressor import RemoteRerankerCompressor
 from src.config.vector_db_config import VectorDBType
 from src.factories.vector_db_factory import VectorDBManager
 from src.utils.DocumentChunker import DocumentChunker
-from src.utils.remote_rerank import call_siliconflow_rerank
 
 # 配置日志
 logger = logging.getLogger(__name__)
-
-# 设置默认重排序模型
-DEFAULT_REMOTE_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
-
-
-# --- 自定义远程 Reranker Compressor ---
-class RemoteRerankerCompressor(BaseDocumentCompressor):
-    """
-    一个自定义的 Langchain 文档压缩器，
-    通过调用 SiliconFlow API 来对文档进行重排序。
-    """
-
-    api_key: str
-    model_name: str = DEFAULT_REMOTE_RERANK_MODEL
-    top_n: int = 3
-
-    async def acompress_documents(
-        self,
-        documents: Sequence[Document],
-        query: str,
-        callbacks: Optional[Callbacks] = None,
-    ) -> Sequence[Document]:
-        """异步压缩文档，通过调用 SiliconFlow API 进行重排序。"""
-        if not documents:
-            return []
-        if not self.api_key:
-            logger.error("缺少 SiliconFlow API key，无法执行远程重排序。")
-            return documents
-
-        doc_contents = [doc.page_content for doc in documents]
-        logger.debug(
-            f"调用 SiliconFlow Rerank: query='{query[:50]}...', docs_count={len(doc_contents)}"
-        )
-
-        # 调用远程重排序函数
-        ranked_results = await call_siliconflow_rerank(
-            api_key=self.api_key,
-            query=query,
-            documents=doc_contents,
-            model=self.model_name,
-            top_n=self.top_n,
-        )
-
-        final_docs = []
-        if ranked_results:
-            logger.debug(f"SiliconFlow Rerank 返回 {len(ranked_results)} 个结果。")
-            for result in ranked_results:
-                original_index = result.get("index")
-                score = result.get("relevance_score")
-                if original_index is not None and 0 <= original_index < len(documents):
-                    original_doc = documents[original_index]
-                    new_metadata = (
-                        original_doc.metadata.copy() if original_doc.metadata else {}
-                    )
-                    new_metadata["relevance_score"] = score
-                    final_docs.append(
-                        Document(
-                            page_content=original_doc.page_content,
-                            metadata=new_metadata,
-                        )
-                    )
-                else:
-                    logger.warning(f"SiliconFlow 返回了无效的索引: {original_index}")
-            logger.info(f"远程重排序完成，返回 {len(final_docs)} 个文档。")
-        else:
-            logger.warning("远程 Rerank 调用失败或未返回有效结果，将返回原始文档。")
-            return documents
-
-        return final_docs
-
-    def compress_documents(
-        self,
-        documents: Sequence[Document],
-        query: str,
-        callbacks: Optional[Callbacks] = None,
-    ) -> Sequence[Document]:
-        """同步版本，包装异步版本。"""
-        import asyncio
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        return asyncio.run(self.acompress_documents(documents, query, callbacks))
 
 
 # --- 重构后的 Knowledge 类 ---
@@ -374,7 +284,7 @@ class Knowledge:
                 compressor = RemoteRerankerCompressor(
                     api_key=self.remote_rerank_config["api_key"],
                     model_name=self.remote_rerank_config.get(
-                        "model", DEFAULT_REMOTE_RERANK_MODEL
+                        "model", RemoteRerankerCompressor.model_name
                     ),
                     top_n=self.rerank_top_n,
                 )

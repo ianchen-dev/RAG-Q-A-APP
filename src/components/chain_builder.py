@@ -132,9 +132,7 @@ class ChainBuilder:
 
         return context_display_name, base_chain, is_dict_output_for_history
 
-    async def _get_knowledge_base_data(
-        self, knowledge_base_id: str
-    ) -> Optional[dict]:
+    async def _get_knowledge_base_data(self, knowledge_base_id: str) -> Optional[dict]:
         """Retrieve knowledge base data from MongoDB.
 
         Args:
@@ -148,7 +146,9 @@ class ChainBuilder:
 
         logging.info(f"从 MongoDB 获取知识库: {knowledge_base_id}")
         try:
-            knowledge_base_doc = await KnowledgeBaseModel.get(ObjectId(knowledge_base_id))
+            knowledge_base_doc = await KnowledgeBaseModel.get(
+                ObjectId(knowledge_base_id)
+            )
             if knowledge_base_doc:
                 logging.info(f"从 MongoDB 成功获取知识库: {knowledge_base_id}")
                 return knowledge_base_doc.model_dump(mode="json")
@@ -178,9 +178,7 @@ class ChainBuilder:
             Context display name string
         """
         if not kb_data:
-            logging.warning(
-                f"无法从 MongoDB 获取知识库 {knowledge_base_id} 的元数据。"
-            )
+            logging.warning(f"无法从 MongoDB 获取知识库 {knowledge_base_id} 的元数据。")
             return "标准对话 (知识库数据错误)"
 
         kb_title = kb_data.get("title", "未知知识库")
