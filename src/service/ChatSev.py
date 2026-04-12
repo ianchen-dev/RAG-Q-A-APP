@@ -15,7 +15,6 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains.retrieval import create_retrieval_chain
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import (
     ConfigurableFieldSpec,  # f-流式输出
     RunnableConfig,  # f-流式输出
@@ -29,11 +28,14 @@ from langchain_mongodb.chat_message_histories import (
     MongoDBChatMessageHistory,  # f-历史会话-持久化会话历史数据
 )
 
+# components
+from src.components.prompt import create_chat_prompts
+
 # Beanie模型
 from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
-from src.utils.Knowledge import Knowledge
 
 # utils
+from src.utils.Knowledge import Knowledge
 from src.utils.llm_modle import get_llms
 
 logger = logging.getLogger(__name__)
@@ -70,36 +72,8 @@ class ChatSev:
                 "错误：环境变量 MONGODB_COLLECTION_NAME_CHATHISTORY 未设置或为空。请检查您的 .env 文件或系统环境变量。"
             )
         self.prompt = prompt  # f-提示词功能-传入自定义提示词
-        self.knowledge_prompt = None  # 问答模板
-        self.normal_prompt = None  # 正常模板
-        self.create_chat_prompt()  # 创建聊天模板
-
-    def create_chat_prompt(self) -> None:
-        system_prompt_zh = "你是一个乐于助人的助手"
-        system_prompt_en = "You are an assistant who helps people solve all kinds of problems.Response in English"  # noqa: F841
-
-        ai_info = self.prompt if self.prompt else system_prompt_zh
-        RAG_prompt_zh = """【注意：当用户向你提问，请你使用下面检索到的上下文来回答问题。如果根据检索到的上下文不能够回答问题，请你回答:'据检索到的上下文不足够回答该问题'。检索到的上下文如下：\n"""
-        RAG_prompt_en = """Note: When a user asks you a question, please answer it using the context retrieved below. If you cannot answer the question based on the retrieved context, please reply: "The retrieved context is not sufficient to answer this question." The retrieved context is as follows: \n"""  # pyright: ignore[reportUnusedVariable]  # noqa: F841
-        # 知识库prompt--system
-        knowledge_system_prompt = f"{ai_info}{RAG_prompt_zh} {{context}}"
-
-        self.knowledge_prompt = ChatPromptTemplate.from_messages(  # 知识库prompt
-            [
-                ("system", knowledge_system_prompt),
-                ("placeholder", "{chat_history}"),
-                ("human", "{input}"),
-            ]
-        )
-
-        # 没有指定知识库的模板的AI系统模板
-        self.normal_prompt = ChatPromptTemplate.from_messages(  # 正常prompt
-            [
-                ("system", ai_info),
-                ("placeholder", "{chat_history}"),
-                ("human", "{input}"),
-            ]
-        )
+        # Create chat prompts using the extracted function
+        self.knowledge_prompt, self.normal_prompt = create_chat_prompts(prompt)
 
     def get_session_chat_history(self, session_id: str) -> BaseChatMessageHistory:
         """根据 session_id 获取 MongoDB 聊天记录实例"""
@@ -112,21 +86,6 @@ class ChatSev:
         )
 
     def _create_fallback_chain(
-        self, chat, display_name: str
-    ) -> Tuple[RunnableSerializable, str, bool]:
-        """Create a fallback normal chat chain with the specified display name.
-
-        Args:
-            chat: The LLM instance
-            display_name: The display name for the context
-
-        Returns:
-            Tuple of (base_chain, context_display_name, is_dict_output_for_history)
-        """
-        base_chain = self.normal_prompt | chat
-        return base_chain, display_name, False
-
-    async def _determine_context_and_base_chain(
         self, chat, display_name: str
     ) -> Tuple[RunnableSerializable, str, bool]:
         """Create a fallback normal chat chain with the specified display name.
