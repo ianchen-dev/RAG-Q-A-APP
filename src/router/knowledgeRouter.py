@@ -1,23 +1,10 @@
-from typing import Optional
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
 
 import src.service.knowledgeSev as knowledgeSev
-
-# 导入 EmbeddingConfig 以便在 KnowledgeBaseCreate 中使用
-from src.models.knowledgeBase import EmbeddingConfig
+from src.schema.knowledge import KnowledgeBaseCreate
 from src.service.userSev import get_current_user
 
 knowledgeRouter = APIRouter()
-
-
-# 更新 KnowledgeBaseCreate 模型以包含 EmbeddingConfig
-class KnowledgeBaseCreate(BaseModel):
-    title: str
-    tag: Optional[list[str]] = None
-    description: Optional[str] = None
-    embedding_config: EmbeddingConfig  # 直接使用 EmbeddingConfig 模型
 
 
 # 创建知识库
@@ -50,10 +37,10 @@ async def upload_file_to_knowledge_base(
         Args:
         kb_id: 知识库ID
         file: 上传的文件对象
-        
+
     Returns:
         包含任务ID的响应字典
-        
+
     Raises:
         FileNotFoundError: 知识库不存在
         ValueError: 配置错误
@@ -75,27 +62,30 @@ async def upload_file_to_knowledge_base(
         print(f"上传文件到知识库 {kb_id} 时发生错误: {e}")
         raise HTTPException(status_code=500, detail=f"处理文件上传失败: {e}")
 
+
 # 2025.09.20 for 后台异步上传文件功能
 @knowledgeRouter.get("/tasks/{task_id}", summary="查询文件处理任务状态")
 async def get_task_status(task_id: str):
     """
     查询文件处理任务的状态
-    
+
     Args:
         task_id: 任务ID
-        
+
     Returns:
         任务状态信息
     """
     try:
         from src.service.file_queue_manager import file_queue_manager
-        
+
         # 获取任务状态
         task_status = await file_queue_manager.get_task_status(task_id)
-        
+
         if not task_status:
-            raise HTTPException(status_code=404, detail=f"任务 {task_id} 不存在或已过期")
-        
+            raise HTTPException(
+                status_code=404, detail=f"任务 {task_id} 不存在或已过期"
+            )
+
         return {
             "task_id": task_id,
             "status": task_status.get("status", "unknown"),
@@ -103,9 +93,9 @@ async def get_task_status(task_id: str):
             "kb_id": task_status.get("kb_id"),
             "created_at": task_status.get("created_at"),
             "retry_count": task_status.get("retry_count", 0),
-            "error_message": task_status.get("error_message")
+            "error_message": task_status.get("error_message"),
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -117,23 +107,23 @@ async def get_task_status(task_id: str):
 async def get_queue_status():
     """
     查询文件处理队列的状态信息
-    
+
     Returns:
         队列状态信息
     """
     try:
         from src.service.file_queue_manager import file_queue_manager
-        
+
         # 获取队列状态
         queue_status = await file_queue_manager.get_queue_status()
-        
+
         return {
             "queue_size": queue_status.get("queue_size", 0),
             "max_queue_size": queue_status.get("max_queue_size", 100),
             "workers_count": queue_status.get("workers_count", 0),
-            "is_running": queue_status.get("is_running", False)
+            "is_running": queue_status.get("is_running", False),
         }
-        
+
     except Exception as e:
         print(f"查询队列状态时发生错误: {e}")
         raise HTTPException(status_code=500, detail=f"查询队列状态失败: {e}")

@@ -1,39 +1,19 @@
 import logging
-from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
 
 from src.config.database_manager import get_database_manager
+from src.schema.health import (
+    ConnectionStatsResponse,
+    HealthCheckResponse,
+    OneAPIHealthResponse,
+)
 from src.utils.oneapi_health import check_oneapi_health, get_oneapi_checker
 
 logger = logging.getLogger(__name__)
 
 # 创建路由器
 HealthRouter = APIRouter()
-
-
-class HealthCheckResponse(BaseModel):
-    """健康检查响应模型"""
-
-    status: str = Field(..., description="总体状态")
-    timestamp: str = Field(..., description="检查时间")
-    services: Dict[str, Any] = Field(..., description="各服务状态")
-
-
-class ConnectionStatsResponse(BaseModel):
-    """连接统计响应模型"""
-
-    mongodb: Dict[str, Any] = Field(..., description="MongoDB 连接信息")
-
-
-class OneAPIHealthResponse(BaseModel):
-    """OneAPI健康检查响应模型"""
-
-    overall_status: str = Field(..., description="总体状态")
-    timestamp: str = Field(..., description="检查时间")
-    connection: Dict[str, Any] = Field(..., description="连接检查结果")
-    embeddings: Optional[Dict[str, Any]] = Field(None, description="嵌入模型检查结果")
 
 
 @HealthRouter.get(
@@ -141,9 +121,7 @@ async def get_connection_stats():
 
         logger.info("连接统计信息获取完成")
 
-        return ConnectionStatsResponse(
-            mongodb=stats.get("mongodb", {})
-        )
+        return ConnectionStatsResponse(mongodb=stats.get("mongodb", {}))
 
     except Exception as e:
         logger.error(f"获取连接统计信息失败: {e}", exc_info=True)
@@ -354,13 +332,9 @@ async def comprehensive_health_check(
             oneapi_status = "error"
 
         # 计算总体健康状态
-        if all(
-            status == "healthy" for status in [db_status, oneapi_status]
-        ):
+        if all(status == "healthy" for status in [db_status, oneapi_status]):
             overall_status = "healthy"
-        elif any(
-            status == "healthy" for status in [db_status, oneapi_status]
-        ):
+        elif any(status == "healthy" for status in [db_status, oneapi_status]):
             overall_status = "partial"
         else:
             overall_status = "unhealthy"
