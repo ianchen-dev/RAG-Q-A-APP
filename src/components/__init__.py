@@ -7,6 +7,11 @@ stream handlers, and other utilities.
 
 from src.components.chain_builder import ChainBuilder
 from src.components.chat_history import ChatHistoryManager
+from src.components.document_chunker import DocumentChunker, DocumentChunkerConfig
+from src.components.document_loader_factory import (
+    DocumentLoaderConfig,
+    DocumentLoaderFactory,
+)
 from src.components.embedding_provider import EmbeddingSupplier, create_embedding, get_embedding
 from src.components.kb import (
     DocumentProcessor,
@@ -22,6 +27,10 @@ from src.components.llm_provider import LLMSupplier, create_llm, get_llms
 from src.components.prompt import create_chat_prompts
 from src.components.reranker_compressor import RemoteRerankerCompressor
 from src.components.stream_handler import StreamHandler
+from src.components.text_splitter_factory import (
+    SplitterType,
+    TextSplitterFactory,
+)
 from src.components.vector_db_factory import VectorDBFactory, get_vector_db_factory
 
 __all__ = [
@@ -46,4 +55,10 @@ __all__ = [
     "EmbeddingSupplier",
     "VectorDBFactory",
     "get_vector_db_factory",
+    "DocumentChunker",
+    "DocumentChunkerConfig",
+    "DocumentLoaderFactory",
+    "DocumentLoaderConfig",
+    "TextSplitterFactory",
+    "SplitterType",
 ]

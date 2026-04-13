@@ -51,7 +51,10 @@ src/
 │   ├── prompt.py        # Prompt 模板创建组件
 │   ├── chat_history.py  # 聊天历史管理组件
 │   ├── chain_builder.py # 链构建组件
-│   └── stream_handler.py# 流处理组件
+│   ├── stream_handler.py# 流处理组件
+│   ├── document_chunker.py  # 文档分块组件
+│   ├── document_loader_factory.py  # 文档加载器工厂
+│   └── text_splitter_factory.py    # 文本分割器工厂
 ├── adapters/            # 适配器模式实现（向量数据库）
 │   ├── __init__.py
 │   ├── vector_db_adapter.py  # 向量数据库适配器抽象基类
@@ -85,7 +88,6 @@ src/
 │   ├── health.py              # 健康检查 schemas
 │   └── knowledge.py           # 知识库相关 schemas
 ├── utils/               # 工具函数
-│   ├── DocumentChunker.py     # 文档分块
 │   ├── embedding.py           # Embedding 工具
 │   ├── llm_modle.py           # LLM 工具
 │   ├── batch_processor.py     # 批次处理器
@@ -400,6 +402,9 @@ class MyService:
 - `src/components/chat_history.py` - 历史管理组件
 - `src/components/chain_builder.py` - 链构建组件
 - `src/components/stream_handler.py` - 流处理组件
+- `src/components/document_chunker.py` - 文档分块组件（从 utils 重构）
+- `src/components/document_loader_factory.py` - 文档加载器工厂
+- `src/components/text_splitter_factory.py` - 文本分割器工厂
 - `src/service/ChatSev.py` - 重构后的协调者服务
 
 ## 最佳实践

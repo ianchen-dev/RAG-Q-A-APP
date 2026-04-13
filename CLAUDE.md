@@ -145,8 +145,10 @@ docker-compose down
 - Async file upload queue with semaphore-based concurrency control
 - Batch processing for large files
 
-**Document Chunker (`src/utils/DocumentChunker.py`)**
+**Document Chunker (`src/components/document_chunker.py`)**
 - Multiple splitting strategies: recursive, semantic, markdown, hybrid
+- DocumentLoaderFactory for file type-based loader creation
+- TextSplitterFactory for splitter strategy creation
 
 ### Directory Structure
 

@@ -9,7 +9,7 @@ from typing import List
 
 from langchain_core.documents import Document
 
-from src.utils.DocumentChunker import DocumentChunker
+from src.components.document_chunker import DocumentChunker
 
 logger = logging.getLogger(__name__)
 
