@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from src.models.knowledgeBase import KnowledgeBase
 from src.schema.chat import ChatRequest
 from src.service.ChatSev import ChatSev
-from src.utils.embedding import get_embedding
+from src.components import get_embedding
 from src.components.kb import KnowledgeManager
 
 ChatRouter = APIRouter()

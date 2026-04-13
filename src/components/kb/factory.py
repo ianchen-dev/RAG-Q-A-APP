@@ -7,10 +7,10 @@
 import logging
 from typing import Optional
 
+from src.components import get_embedding
 from src.components.kb.knowledge_manager import KnowledgeManager
 from src.components.kb.repository import KnowledgeBaseRepository
 from src.models.knowledgeBase import KnowledgeBase as KnowledgeBaseModel
-from src.utils.embedding import get_embedding
 
 logger = logging.getLogger(__name__)
 

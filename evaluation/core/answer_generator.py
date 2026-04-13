@@ -14,9 +14,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from config.config_schema import EvaluationConfig
+from src.components import get_embedding
 from src.models.knowledgeBase import KnowledgeBase
 from src.service.ChatSev import ChatSev
-from src.utils.embedding import get_embedding
 from src.components.kb import KnowledgeManager
 
 

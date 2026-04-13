@@ -10,9 +10,9 @@ from typing import Any, Dict, Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from src.components import get_embedding
 from src.components.kb import KnowledgeManager
 from src.models.knowledgeBase import KnowledgeBase
-from src.utils.embedding import get_embedding
 from src.utils.format_doc_list import utils_format_doc_list
 
 

@@ -123,7 +123,7 @@ class RAGASEvaluator:
     def _get_embeddings(self):
         """获取嵌入模型"""
         try:
-            from src.utils.embedding import get_embedding
+            from src.components import get_embedding
 
             judge_config = self.config.evaluator_config.judge_embedding
             # 使用项目中已有的嵌入模型获取函数
