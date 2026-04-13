@@ -13,6 +13,7 @@ from langchain_core.retrievers import BaseRetriever
 
 from src.adapters.vector_db_adapter import VectorDBAdapter
 from src.config.vector_db_config import get_vector_db_config
+from src.utils.batch_processor import DocumentBatchProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +21,29 @@ logger = logging.getLogger(__name__)
 class ChromaAdapter(VectorDBAdapter):
     """Chroma向量数据库适配器"""
 
-    def __init__(self, embeddings: Embeddings):
+    def __init__(
+        self,
+        embeddings: Embeddings,
+        batch_size: int = 64,
+        max_concurrent_batches: int = 10,
+    ):
         """
         初始化Chroma适配器
 
         Args:
             embeddings: 嵌入模型实例
+            batch_size: 批次处理大小，默认64
+            max_concurrent_batches: 最大并发批次数量，默认5
         """
         super().__init__(embeddings)
         self.config = get_vector_db_config().chroma
         self._collections: Dict[str, Chroma] = {}  # 缓存已加载的集合
+        self.batch_processor = DocumentBatchProcessor(
+            batch_size=batch_size, max_concurrent_batches=max_concurrent_batches
+        )
         logger.info(
-            f"ChromaAdapter 初始化完成，持久化目录: {self.config.persist_directory}"
+            f"ChromaAdapter 初始化完成，持久化目录: {self.config.persist_directory}, "
+            f"批次大小: {batch_size}, 最大并发批次: {max_concurrent_batches}"
         )
 
     def _get_collection_path(self, collection_name: str) -> str:
@@ -92,7 +104,7 @@ class ChromaAdapter(VectorDBAdapter):
         self, collection_name: str, documents: List[Document]
     ) -> List[str]:
         """
-        向Chroma集合添加文档
+        向Chroma集合添加文档（支持批次处理）
 
         Args:
             collection_name: 集合名称
@@ -108,30 +120,84 @@ class ChromaAdapter(VectorDBAdapter):
         try:
             collection = self._get_or_create_collection(collection_name)
 
-            # 检查集合是否已存在
-            if await self.collection_exists(collection_name):
-                # 集合已存在，使用add_documents
-                document_ids = await collection.aadd_documents(documents)
-            else:
-                # 集合不存在，使用from_documents创建
-                collection = await Chroma.afrom_documents(
-                    documents=documents,
-                    embedding=self.embeddings,
-                    collection_name=collection_name,
-                    persist_directory=self._get_collection_path(collection_name),
-                    collection_metadata=self.config.collection_metadata,
+            # 检查文档数量，决定是否使用批次处理
+            total_docs = len(documents)
+            batch_size = self.batch_processor.batch_size
+
+            if total_docs <= batch_size:
+                # 文档数量不超过批次大小，直接处理
+                logger.info(
+                    f"文档数量 {total_docs} 不超过批次大小 {batch_size}，直接处理"
                 )
-                self._collections[collection_name] = collection
-                # Chroma.afrom_documents不返回IDs，我们需要生成
-                document_ids = [f"doc_{i}" for i in range(len(documents))]
+                document_ids = await self._add_documents_direct(
+                    collection_name, collection, documents
+                )
+            else:
+                # 文档数量超过批次大小，使用批次处理
+                logger.info(
+                    f"文档数量 {total_docs} 超过批次大小 {batch_size}，启用批次处理"
+                )
+                document_ids = await self._add_documents_in_batches(
+                    collection, documents
+                )
 
             logger.info(
-                f"成功向Chroma集合 '{collection_name}' 添加 {len(documents)} 个文档"
+                f"成功向Chroma集合 '{collection_name}' 添加 {len(documents)} 个文档，获得 {len(document_ids)} 个ID"
             )
             return document_ids
         except Exception as e:
             logger.error(f"向Chroma集合 '{collection_name}' 添加文档失败: {e}")
             raise
+
+    async def _add_documents_direct(
+        self, collection_name: str, collection: Chroma, documents: List[Document]
+    ) -> List[str]:
+        """
+        直接添加文档（不分批次）
+
+        Args:
+            collection_name: 集合名称
+            collection: Chroma集合实例
+            documents: 文档列表
+
+        Returns:
+            文档ID列表
+        """
+        # 检查集合是否已存在
+        if await self.collection_exists(collection_name):
+            # 集合已存在，使用aadd_documents
+            document_ids = await collection.aadd_documents(documents)
+        else:
+            # 集合不存在，使用from_documents创建
+            collection = await Chroma.afrom_documents(
+                documents=documents,
+                embedding=self.embeddings,
+                collection_name=collection_name,
+                persist_directory=self._get_collection_path(collection_name),
+                collection_metadata=self.config.collection_metadata,
+            )
+            self._collections[collection_name] = collection
+            # Chroma.afrom_documents不返回IDs，我们需要生成
+            document_ids = [f"doc_{i}" for i in range(len(documents))]
+
+        return document_ids
+
+    async def _add_documents_in_batches(
+        self, collection: Chroma, documents: List[Document]
+    ) -> List[str]:
+        """
+        分批次添加文档
+
+        Args:
+            collection: Chroma集合实例
+            documents: 文档列表
+
+        Returns:
+            所有文档的ID列表
+        """
+        return await self.batch_processor.add_documents_in_batches(
+            collection, documents
+        )
 
     async def delete_documents(
         self,

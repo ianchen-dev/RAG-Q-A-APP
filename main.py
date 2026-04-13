@@ -35,7 +35,6 @@ from src.config.database_manager import (
 # --- 导入 MCP Client 管理器 ---
 from src.config.mcp_client_manager import shutdown_mcp_client, startup_mcp_client
 from src.models.user import User  # 导入 User 模型
-from src.service.knowledgeSev import load_all_knowledge_bases_to_cache
 from src.utils.pwdHash import get_password_hash  # 导入密码哈希函数
 
 
@@ -57,19 +56,7 @@ async def lifespan(app: FastAPI):
         await startup_mcp_client()
         logger.info("MCP 客户端初始化完成")
 
-        # 3. 预加载知识库缓存
-        try:
-            manager = await get_database_manager()
-            await manager.get_redis_client()  # 确认 Redis 客户端可用
-            logger.info("Redis 客户端获取成功，正在预加载知识库缓存...")
-            await load_all_knowledge_bases_to_cache()
-            logger.info("知识库缓存预加载完成")
-        except RuntimeError as e:
-            logger.warning(f"无法获取 Redis 客户端，跳过知识库缓存预加载: {e}")
-        except Exception as e:
-            logger.error(f"预加载知识库缓存时发生错误: {e}", exc_info=True)
-
-        # 4. 创建 root 用户（如果不存在）
+        # 3. 创建 root 用户（如果不存在）
         try:
             root_user = await User.find_one(User.username == "root")
             if not root_user:
@@ -86,13 +73,67 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"创建 Root 用户时出错: {e}")
 
-        # 5. 执行健康检查
+        # 5. 初始化文件处理队列管理器
+        try:
+            from src.service.file_queue_manager import file_queue_manager
+
+            logger.info("正在初始化文件处理队列管理器...")
+            await file_queue_manager.initialize()
+            await file_queue_manager.start_workers()
+            logger.info("文件处理队列管理器初始化完成")
+        except Exception as e:
+            logger.error(f"初始化文件处理队列管理器失败: {e}", exc_info=True)
+            # 队列管理器失败不应阻止应用启动，但会影响文件上传功能
+
+        # 6. 执行健康检查
         try:
             manager = await get_database_manager()
             health_status = await manager.health_check(force=True)
-            logger.info(f"启动时健康检查完成: {health_status}")
+            logger.info(f"启动时数据库健康检查完成: {health_status}")
         except Exception as e:
-            logger.warning(f"启动时健康检查失败: {e}")
+            logger.warning(f"启动时数据库健康检查失败: {e}")
+
+        # 7. 执行OneAPI健康检查
+        try:
+            from src.utils.oneapi_health import check_oneapi_health
+
+            oneapi_status = await check_oneapi_health(
+                include_embeddings=True, timeout=15
+            )
+            logger.info(
+                f"启动时OneAPI健康检查完成: 状态={oneapi_status['overall_status']}"
+            )
+
+            if oneapi_status["overall_status"] == "healthy":
+                logger.info(
+                    f"  ✅ OneAPI连接正常，响应时间: {oneapi_status['connection']['response_time_ms']}ms"
+                )
+                logger.info(
+                    f"  ✅ 可用模型数量: {oneapi_status['connection']['models_count']}"
+                )
+                if oneapi_status.get("embeddings"):
+                    logger.info(
+                        f"  ✅ 嵌入模型检查正常，响应时间: {oneapi_status['embeddings']['response_time_ms']}ms"
+                    )
+            elif oneapi_status["overall_status"] == "partial":
+                logger.warning("  ⚠️ OneAPI部分功能可用")
+                if oneapi_status["connection"]["status"] == "healthy":
+                    logger.info(
+                        f"  ✅ 基础连接正常: {oneapi_status['connection']['response_time_ms']}ms"
+                    )
+                if oneapi_status.get("embeddings", {}).get("status") != "healthy":
+                    logger.warning(
+                        f"  ❌ 嵌入模型检查失败: {oneapi_status.get('embeddings', {}).get('error', 'Unknown error')}"
+                    )
+            else:
+                logger.error(
+                    f"  ❌ OneAPI连接失败: {oneapi_status['connection'].get('error', 'Unknown error')}"
+                )
+                logger.error("  建议检查OneAPI服务状态和配置")
+
+        except Exception as e:
+            logger.error(f"启动时OneAPI健康检查失败: {e}")
+            logger.error("建议检查OneAPI配置: ONEAPI_BASE_URL 和 ONEAPI_API_KEY")
 
         logger.info("应用程序启动完成，所有服务已就绪")
 
@@ -107,12 +148,22 @@ async def lifespan(app: FastAPI):
     logger.info("应用程序关闭：开始清理各项服务...")
 
     try:
-        # 1. 关闭 MCP Client
+        # 1. 停止文件处理队列管理器
+        try:
+            from src.service.file_queue_manager import file_queue_manager
+
+            logger.info("正在停止文件处理队列管理器...")
+            await file_queue_manager.stop_workers()
+            logger.info("文件处理队列管理器已停止")
+        except Exception as e:
+            logger.error(f"停止文件处理队列管理器失败: {e}")
+
+        # 2. 关闭 MCP Client
         logger.info("正在关闭 MCP 客户端...")
         await shutdown_mcp_client()
         logger.info("MCP 客户端已关闭")
 
-        # 2. 关闭数据库连接（使用新的管理器）
+        # 3. 关闭数据库连接（使用新的管理器）
         logger.info("正在关闭数据库连接...")
         await close_databases()
         logger.info("数据库连接已关闭")

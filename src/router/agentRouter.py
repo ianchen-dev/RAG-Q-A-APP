@@ -1,9 +1,10 @@
-import json  # 添加 json
+import json
 from typing import AsyncGenerator
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+
+from src.schema.agent import QueryRequest
 
 # 并行部署：同时支持两种 Agent 类型
 # from src.service.langgraph_agent import main_graph_execution  # 原 LangGraph 版本
@@ -15,12 +16,6 @@ from src.service.langchain_react_agent import (
 )
 
 AgentRouter = APIRouter()
-
-
-# 2. 定义一个请求体模型
-class QueryRequest(BaseModel):
-    question: str  # 用户输入的消息
-    session_id: str = "67fa7b1acaaf230867eefce1"
 
 
 async def sse_event_formatter_agent(

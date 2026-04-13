@@ -1,6 +1,6 @@
 """
 数据库连接管理器单例
-统一管理 MongoDB 和 Redis 连接，提供连接池管理和资源清理的统一接口
+统一管理 MongoDB 连接，提供连接池管理和资源清理的统一接口
 
 """
 
@@ -10,7 +10,6 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
-import redis.asyncio as aioredis
 from beanie import init_beanie
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
@@ -44,14 +43,8 @@ class DatabaseManager:
             self._mongodb_db: Optional[AsyncIOMotorDatabase] = None
             self._mongodb_config: Dict[str, Any] = {}
 
-            # Redis 相关
-            self._redis_client: Optional[aioredis.Redis] = None
-            self._redis_pool: Optional[aioredis.ConnectionPool] = None
-            self._redis_config: Dict[str, Any] = {}
-
             # 状态标志
             self._mongodb_initialized = False
-            self._redis_initialized = False
             self._initialized = False
 
             # 健康检查相关
@@ -67,23 +60,8 @@ class DatabaseManager:
 
             logger.info("开始初始化数据库连接管理器...")
 
-            # 并行初始化 MongoDB 和 Redis
-            tasks = [self._init_mongodb(), self._init_redis()]
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # 检查初始化结果
-            mongodb_result, redis_result = results
-
-            if isinstance(mongodb_result, Exception):
-                logger.error(f"MongoDB 初始化失败: {mongodb_result}")
-            else:
-                logger.info("MongoDB 初始化成功")
-
-            if isinstance(redis_result, Exception):
-                logger.error(f"Redis 初始化失败: {redis_result}")
-            else:
-                logger.info("Redis 初始化成功")
+            # 初始化 MongoDB
+            await self._init_mongodb()
 
             self._initialized = True
             logger.info("数据库连接管理器初始化完成")
@@ -154,59 +132,6 @@ class DatabaseManager:
             logger.error(f"MongoDB 初始化失败: {e}", exc_info=True)
             raise
 
-    async def _init_redis(self) -> None:
-        """初始化 Redis 连接"""
-        try:
-            # 获取 Redis 配置
-            self._redis_config = {
-                "host": os.getenv("REDIS_HOST", "localhost"),
-                "port": int(os.getenv("REDIS_PORT", "6379")),
-                "db": int(os.getenv("REDIS_DB", "0")),
-                "password": os.getenv("REDIS_PASSWORD"),
-                "max_connections": int(os.getenv("REDIS_MAX_CONNECTIONS", "20")),
-                "socket_timeout": int(os.getenv("REDIS_SOCKET_TIMEOUT", "5")),
-                "socket_connect_timeout": int(
-                    os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "5")
-                ),
-                "retry_on_timeout": os.getenv("REDIS_RETRY_ON_TIMEOUT", "true").lower()
-                == "true",
-                "decode_responses": True,
-            }
-
-            logger.info(
-                f"连接 Redis: {self._redis_config['host']}:{self._redis_config['port']}, "
-                f"数据库: {self._redis_config['db']}"
-            )
-
-            # 创建连接池
-            self._redis_pool = aioredis.ConnectionPool(
-                host=self._redis_config["host"],
-                port=self._redis_config["port"],
-                db=self._redis_config["db"],
-                password=self._redis_config["password"],
-                decode_responses=self._redis_config["decode_responses"],
-                max_connections=self._redis_config["max_connections"],
-                socket_timeout=self._redis_config["socket_timeout"],
-                socket_connect_timeout=self._redis_config["socket_connect_timeout"],
-                retry_on_timeout=self._redis_config["retry_on_timeout"],
-            )
-
-            # 创建 Redis 客户端
-            self._redis_client = aioredis.Redis(connection_pool=self._redis_pool)
-
-            # 测试连接
-            await self._redis_client.ping()
-            logger.info("Redis 连接测试成功")
-
-            self._redis_initialized = True
-
-        except Exception as e:
-            logger.error(f"Redis 初始化失败: {e}", exc_info=True)
-            # Redis 失败不应阻止应用启动，设置为 None
-            self._redis_client = None
-            self._redis_pool = None
-            # 不抛出异常，允许应用在没有 Redis 的情况下运行
-
     async def get_mongodb_client(self) -> AsyncIOMotorClient:
         """获取 MongoDB 客户端实例"""
         if not self._mongodb_initialized or self._mongodb_client is None:
@@ -226,18 +151,6 @@ class DatabaseManager:
             raise RuntimeError("MongoDB 数据库实例未初始化或初始化失败")
 
         return self._mongodb_db
-
-    async def get_redis_client(self) -> aioredis.Redis:
-        """获取 Redis 客户端实例"""
-        if not self._redis_initialized or self._redis_client is None:
-            await self.initialize()
-
-        if self._redis_client is None:
-            raise RuntimeError(
-                "Redis 客户端未初始化或初始化失败。请检查 Redis 服务是否运行正常。"
-            )
-
-        return self._redis_client
 
     async def health_check(self, force: bool = False) -> Dict[str, Any]:
         """
@@ -265,7 +178,6 @@ class DatabaseManager:
         health_status = {
             "timestamp": now.isoformat(),
             "mongodb": {"status": "unknown", "error": None},
-            "redis": {"status": "unknown", "error": None},
         }
 
         # 检查 MongoDB
@@ -281,19 +193,6 @@ class DatabaseManager:
             health_status["mongodb"]["error"] = str(e)
             logger.warning(f"MongoDB 健康检查失败: {e}")
 
-        # 检查 Redis
-        try:
-            if self._redis_client:
-                await self._redis_client.ping()
-                health_status["redis"]["status"] = "healthy"
-                logger.debug("Redis 健康检查通过")
-            else:
-                health_status["redis"]["status"] = "not_initialized"
-        except Exception as e:
-            health_status["redis"]["status"] = "unhealthy"
-            health_status["redis"]["error"] = str(e)
-            logger.warning(f"Redis 健康检查失败: {e}")
-
         self._last_health_check = now
         logger.info("数据库健康检查完成")
 
@@ -306,30 +205,11 @@ class DatabaseManager:
                 "initialized": self._mongodb_initialized,
                 "config": self._mongodb_config.copy() if self._mongodb_config else None,
             },
-            "redis": {
-                "initialized": self._redis_initialized,
-                "config": self._redis_config.copy() if self._redis_config else None,
-            },
         }
 
         # 移除敏感信息
         if stats["mongodb"]["config"]:
             stats["mongodb"]["config"].pop("url", None)
-        if stats["redis"]["config"]:
-            stats["redis"]["config"].pop("password", None)
-
-        # 获取 Redis 连接池信息
-        if self._redis_pool:
-            try:
-                stats["redis"]["pool_stats"] = {
-                    "created_connections": self._redis_pool.created_connections,
-                    "available_connections": len(
-                        self._redis_pool._available_connections
-                    ),
-                    "in_use_connections": len(self._redis_pool._in_use_connections),
-                }
-            except Exception as e:
-                logger.warning(f"获取 Redis 连接池统计信息失败: {e}")
 
         return stats
 
@@ -338,45 +218,15 @@ class DatabaseManager:
         async with self._lock:
             logger.info("开始关闭数据库连接...")
 
-            # 并行关闭连接
-            tasks = []
-
-            if self._redis_client:
-                tasks.append(self._close_redis())
-
+            # 关闭 MongoDB 连接
             if self._mongodb_client:
-                tasks.append(self._close_mongodb())
-
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.error(f"关闭数据库连接时发生错误: {result}")
+                await self._close_mongodb()
 
             # 重置状态
             self._mongodb_initialized = False
-            self._redis_initialized = False
             self._initialized = False
 
             logger.info("数据库连接关闭完成")
-
-    async def _close_redis(self) -> None:
-        """关闭 Redis 连接"""
-        try:
-            if self._redis_client:
-                await self._redis_client.close()
-                logger.info("Redis 客户端已关闭")
-
-            if self._redis_pool:
-                await self._redis_pool.disconnect()
-                logger.info("Redis 连接池已断开")
-
-        except Exception as e:
-            logger.error(f"关闭 Redis 连接时出错: {e}")
-        finally:
-            self._redis_client = None
-            self._redis_pool = None
 
     async def _close_mongodb(self) -> None:
         """关闭 MongoDB 连接"""

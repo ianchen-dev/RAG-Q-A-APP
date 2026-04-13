@@ -60,7 +60,5 @@ add_routes(
     path="/chain",
 )
 
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="localhost", port=8000)
+# Integration tests have been migrated to test/integration/router/test_myllm.py
+# Run with: uv run pytest test/integration/router/test_myllm.py -v

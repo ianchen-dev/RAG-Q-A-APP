@@ -14,6 +14,7 @@ from langchain_core.retrievers import BaseRetriever
 logger = logging.getLogger(__name__)
 
 
+# 向量数据库适配器抽象基类
 class VectorDBAdapter(ABC):
     """向量数据库适配器抽象基类"""
 
@@ -173,6 +174,7 @@ class VectorDBAdapter(ABC):
         await self.close()
 
 
+# 向量存储适配器，用于封装不同向量数据库的VectorStore
 class VectorStoreAdapter:
     """向量存储适配器，用于封装不同向量数据库的VectorStore"""
 

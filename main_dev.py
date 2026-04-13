@@ -28,17 +28,78 @@ from src.config.mcp_client_manager import shutdown_mcp_client, startup_mcp_clien
 # 初始化日志系统
 logger = setup_development_logging(log_dir="./log")
 
-load_dotenv()  # 加载 .env 基础配置
-logger.info("APP_ENV: .env")
-# app_env = os.getenv("APP_ENV")
-# if app_env:
-#     dotenv_path = f".env.{app_env}"
-#     print(dotenv_path)
-#     load_dotenv(
-#         dotenv_path=dotenv_path, override=True
-#     )  # override=True 特定环境文件覆盖 .env
-load_dotenv(dotenv_path=".env.dev", override=True)
-logger.info("APP_ENV: .env.dev")
+# 环境变量加载与检查
+import pathlib
+
+# 代理
+# 代理配置 - 注意：如果OneAPI运行在本地，应该排除本地连接使用代理
+os.environ["http_proxy"] = "http://127.0.0.1:7890"  # 修正Clash默认端口
+os.environ["https_proxy"] = "http://127.0.0.1:7890"  # 修正Clash默认端口
+# 排除本地服务使用代理
+os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
+
+
+def check_env_file_and_load():
+    """检查并加载环境变量文件"""
+    project_root = pathlib.Path(__file__).parent.absolute()
+
+    # 检查 .env 文件
+    env_file = project_root / ".env"
+    env_dev_file = project_root / ".env.dev"
+
+    logger.info(f"项目根目录: {project_root}")
+
+    # 加载基础 .env 文件
+    if env_file.exists():
+        load_result = load_dotenv(env_file)
+        logger.info(f"✅ .env 文件存在且已加载: {env_file} (成功: {load_result})")
+    else:
+        logger.warning(f"⚠️  .env 文件不存在: {env_file}")
+
+    # 加载开发环境 .env.dev 文件（覆盖基础配置）
+    if env_dev_file.exists():
+        load_result_dev = load_dotenv(dotenv_path=env_dev_file, override=True)
+        logger.info(
+            f"✅ .env.dev 文件存在且已加载: {env_dev_file} (成功: {load_result_dev})"
+        )
+    else:
+        logger.warning(f"⚠️  .env.dev 文件不存在: {env_dev_file}")
+
+    # 检查关键环境变量
+    critical_env_vars = {
+        "ONEAPI_BASE_URL": "OneAPI基础URL",
+        "ONEAPI_API_KEY": "OneAPI API密钥",
+        "MONGODB_URL": "MongoDB连接URL",
+        "MONGO_DB_NAME": "MongoDB数据库名称",
+    }
+
+    logger.info("🔍 检查关键环境变量:")
+    missing_vars = []
+
+    for var_name, description in critical_env_vars.items():
+        var_value = os.getenv(var_name)
+        if var_value:
+            # 对于敏感信息，只显示前几个字符
+            if "API_KEY" in var_name or "PASSWORD" in var_name:
+                display_value = f"{var_value[:8]}..." if len(var_value) > 8 else "***"
+            else:
+                display_value = var_value
+            logger.info(f"  ✅ {var_name} ({description}): {display_value}")
+        else:
+            logger.error(f"  ❌ {var_name} ({description}): 未设置或为空")
+            missing_vars.append(var_name)
+
+    if missing_vars:
+        logger.error(f"⚠️  缺失关键环境变量: {', '.join(missing_vars)}")
+        logger.error("请检查 .env 和 .env.dev 文件中的配置")
+    else:
+        logger.info("✅ 所有关键环境变量都已正确设置")
+
+    return len(missing_vars) == 0
+
+
+# 执行环境变量检查和加载
+env_check_passed = check_env_file_and_load()
 
 # LANGCHAIN
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -53,7 +114,6 @@ from src.config.database_manager import (
     init_databases,
 )
 from src.models.user import User  # 导入 User 模型
-from src.service.knowledgeSev import load_all_knowledge_bases_to_cache
 from src.utils.pwdHash import get_password_hash  # 导入密码哈希函数
 
 
@@ -64,25 +124,22 @@ async def lifespan(app: FastAPI):
     # === 应用启动阶段 ===
     logger.info("应用程序启动：开始初始化各项服务...")
 
+    # 检查环境变量加载结果
+    if not env_check_passed:
+        logger.error("❌ 环境变量检查失败，某些关键配置缺失")
+        logger.error("建议检查以下内容：")
+        logger.error("  1. 确认 .env 和 .env.dev 文件存在于项目根目录")
+        logger.error("  2. 确认 ONEAPI_BASE_URL 和 ONEAPI_API_KEY 已正确配置")
+        logger.error("  3. 确认 MongoDB 相关配置正确")
+        logger.warning("应用将继续启动，但某些功能可能无法正常工作")
+
     try:
         # 1. 初始化数据库连接（使用新的管理器）
         logger.info("正在初始化数据库连接管理器...")
         await init_databases()
         logger.info("数据库连接管理器初始化完成")
 
-        # 2. 预加载知识库缓存
-        try:
-            manager = await get_database_manager()
-            await manager.get_redis_client()  # 确认 Redis 客户端可用
-            logger.info("Redis 客户端获取成功，正在预加载知识库缓存...")
-            await load_all_knowledge_bases_to_cache()
-            logger.info("知识库缓存预加载完成")
-        except RuntimeError as e:
-            logger.warning(f"无法获取 Redis 客户端，跳过知识库缓存预加载: {e}")
-        except Exception as e:
-            logger.error(f"预加载知识库缓存时发生错误: {e}", exc_info=True)
-
-        # 3. 创建 root 用户（如果不存在）
+        # 2. 创建 root 用户（如果不存在）
         try:
             root_user = await User.find_one(User.username == "root")
             if not root_user:
@@ -91,6 +148,7 @@ async def lifespan(app: FastAPI):
                     username="root",
                     password=hashed_password,
                     email="root@example.com",
+                    nickname="Root Administrator",
                 )
                 await root_user.create()
                 logger.info("Root 用户创建成功")
@@ -104,13 +162,67 @@ async def lifespan(app: FastAPI):
         await startup_mcp_client()  # 这个 await 会在 ProactorEventLoop 下执行
         logger.info("MCP 客户端初始化完成")
 
-        # 5. 执行健康检查
+        # 5. 初始化文件处理队列管理器
+        try:
+            from src.service.file_queue_manager import file_queue_manager
+
+            logger.info("正在初始化文件处理队列管理器...")
+            await file_queue_manager.initialize()
+            await file_queue_manager.start_workers()
+            logger.info("文件处理队列管理器初始化完成")
+        except Exception as e:
+            logger.error(f"初始化文件处理队列管理器失败: {e}", exc_info=True)
+            # 队列管理器失败不应阻止应用启动，但会影响文件上传功能
+
+        # 6. 执行健康检查
         try:
             manager = await get_database_manager()
             health_status = await manager.health_check(force=True)
-            logger.info(f"启动时健康检查完成: {health_status}")
+            logger.info(f"启动时数据库健康检查完成: {health_status}")
         except Exception as e:
-            logger.warning(f"启动时健康检查失败: {e}")
+            logger.warning(f"启动时数据库健康检查失败: {e}")
+
+        # 7. 执行OneAPI健康检查
+        try:
+            from src.utils.oneapi_health import check_oneapi_health
+
+            oneapi_status = await check_oneapi_health(
+                include_embeddings=True, timeout=15
+            )
+            logger.info(
+                f"启动时OneAPI健康检查完成: 状态={oneapi_status['overall_status']}"
+            )
+
+            if oneapi_status["overall_status"] == "healthy":
+                logger.info(
+                    f"  ✅ OneAPI连接正常，响应时间: {oneapi_status['connection']['response_time_ms']}ms"
+                )
+                logger.info(
+                    f"  ✅ 可用模型数量: {oneapi_status['connection']['models_count']}"
+                )
+                if oneapi_status.get("embeddings"):
+                    logger.info(
+                        f"  ✅ 嵌入模型检查正常，响应时间: {oneapi_status['embeddings']['response_time_ms']}ms"
+                    )
+            elif oneapi_status["overall_status"] == "partial":
+                logger.warning("  ⚠️ OneAPI部分功能可用")
+                if oneapi_status["connection"]["status"] == "healthy":
+                    logger.info(
+                        f"  ✅ 基础连接正常: {oneapi_status['connection']['response_time_ms']}ms"
+                    )
+                if oneapi_status.get("embeddings", {}).get("status") != "healthy":
+                    logger.warning(
+                        f"  ❌ 嵌入模型检查失败: {oneapi_status.get('embeddings', {}).get('error', 'Unknown error')}"
+                    )
+            else:
+                logger.error(
+                    f"  ❌ OneAPI连接失败: {oneapi_status['connection'].get('error', 'Unknown error')}"
+                )
+                logger.error("  建议检查OneAPI服务状态和配置")
+
+        except Exception as e:
+            logger.error(f"启动时OneAPI健康检查失败: {e}")
+            logger.error("建议检查OneAPI配置: ONEAPI_BASE_URL 和 ONEAPI_API_KEY")
 
         logger.info("应用程序启动完成，所有服务已就绪")
 
@@ -125,12 +237,22 @@ async def lifespan(app: FastAPI):
     logger.info("应用程序关闭：开始清理各项服务...")
 
     try:
-        # 1. 关闭 MCP Client
+        # 1. 停止文件处理队列管理器
+        try:
+            from src.service.file_queue_manager import file_queue_manager
+
+            logger.info("正在停止文件处理队列管理器...")
+            await file_queue_manager.stop_workers()
+            logger.info("文件处理队列管理器已停止")
+        except Exception as e:
+            logger.error(f"停止文件处理队列管理器失败: {e}")
+
+        # 2. 关闭 MCP Client
         logger.info("正在关闭 MCP 客户端...")
         await shutdown_mcp_client()
         logger.info("MCP 客户端已关闭")
 
-        # 2. 关闭数据库连接（使用新的管理器）
+        # 3. 关闭数据库连接（使用新的管理器）
         logger.info("正在关闭数据库连接...")
         await close_databases()
         logger.info("数据库连接已关闭")

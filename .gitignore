@@ -1,0 +1,353 @@
+#local_dev
+.specstory/
+docs/
+.cursor*
+项目结构
+langgraph_test/
+test-results/
+# RAGas
+evaluation/datasets
+evaluation/results
+#secret
+compose.yml
+#CICD
+*.sh
+deploy*
+Makefile
+
+
+# =============================================================================
+# Python + FastAPI + RAG知识库问答系统 - .gitignore
+# =============================================================================
+
+# ================================
+# Python 核心忽略文件
+# ================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+.pdm-python
+.pdm-build/
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.env.*
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ================================
+# uv 包管理器相关
+# ================================
+
+# uv 虚拟环境
+.venv/
+
+# uv 缓存 (通常可以忽略，让uv自动管理)
+.uv/
+
+# ================================
+# FastAPI / Web 框架相关
+# ================================
+
+# FastAPI 静态文件 (如果有自定义上传目录)
+uploads/
+static/uploads/
+media/
+
+# 日志文件
+*.log
+logs/
+log/
+
+# ================================
+# 数据库相关文件
+# ================================
+
+# SQLite 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 数据库迁移临时文件
+migrations/__pycache__/
+migrations/versions/__pycache__/
+
+# ================================
+# 向量数据库 ChromaDB
+# ================================
+
+# ChromaDB 本地持久化数据
+chroma/
+chromadb/
+*.chroma
+
+# 向量数据库索引文件
+*.index
+*.faiss
+
+# ================================
+# AI/ML 模型文件
+# ================================
+
+# 预训练模型文件 (通常很大，不应提交到git)
+models/
+*.bin
+*.safetensors
+*.onnx
+*.onnx_data
+*.pkl
+*.pt
+*.pth
+*.model
+
+# 但是保留已经存在的BGE重排序模型配置文件
+!docs/bge-reranker-large/config.json
+!docs/bge-reranker-large/README.md
+!docs/bge-reranker-large/special_tokens_map.json
+!docs/bge-reranker-large/tokenizer_config.json
+!docs/bge-reranker-large/tokenizer.json
+
+# Hugging Face 缓存
+.cache/huggingface/
+transformers_cache/
+
+# ================================
+# Docker 相关
+# ================================
+
+# Docker 临时文件
+.dockerignore
+
+# Docker Compose 覆盖文件 (保留示例文件)
+docker-compose.override.yml
+
+# ================================
+# 开发工具配置
+# ================================
+
+# IDE 配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cursor AI IDE
+.cursor/
+.cursorindexingignore
+
+# ================================
+# 操作系统相关
+# ================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ================================
+# 临时文件和缓存
+# ================================
+
+# 通用临时文件
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.bak
+*.backup
+
+# Redis 持久化文件 (如果本地运行Redis)
+dump.rdb
+appendonly.aof
+
+# ================================
+# 项目特定忽略
+# ================================
+
+# 知识库上传的原始文档 (如果有专门的上传目录)
+documents/
+uploads/
+user_files/
+
+# 测试数据
+test_data/
+sample_data/
+
+# 配置文件中的敏感信息
+config/local.py
+config/production.py
+
+# API 密钥文件
+*.key
+*.pem
+*.crt
+
+# 部署脚本中的敏感配置
+deploy.config.local
+.env.local
+.env.production
+
+# 性能测试结果
+locust_reports/
+performance_test_results/
+
+# ================================
+# 文档和资源文件 (选择性忽略)
+# ================================
+
+# 大型文档文件 (根据需要调整)
+*.docx
+*.pdf
+*.pptx
+
+# 但是保留项目文档
+!docs/**/*.md
+!docs/**/*.docx
+!README.md
+!项目结构.md
+
+# ================================
+# 其他
+# ================================
+
+# 压缩文件
+*.zip
+*.tar.gz
+*.rar
+
+# 编译输出
+*.o
+*.a
+*.lib
+*.exe
+
+# 网络文件
+*.url
+*.lnk

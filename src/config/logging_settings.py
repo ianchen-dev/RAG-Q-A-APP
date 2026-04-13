@@ -106,15 +106,5 @@ def get_logging_settings() -> LoggingSettings:
     return logging_settings
 
 
-if __name__ == "__main__":
-    # 测试配置
-    settings = LoggingSettings()
-    print("当前日志配置:")
-    print(settings)
-
-    # 验证配置
-    try:
-        settings.validate()
-        print("\n✅ 配置验证通过")
-    except ValueError as e:
-        print(f"\n❌ 配置验证失败: {e}")
+# Integration tests have been migrated to test/integration/config/test_logging_settings.py
+# Run with: uv run pytest test/integration/config/test_logging_settings.py -v

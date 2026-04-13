@@ -15,19 +15,19 @@ from langchain_core.runnables import AddableDict
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.runnables.utils import Output
 
-from src.utils.Knowledge import Knowledge
+from src.components.kb import KnowledgeManager
 
 # utils
-from src.utils.llm_modle import get_llms
+from src.components.llm_provider import get_llms
 
 
 class ChatSev:
     _chat_history = ChatMessageHistory()  # 对话历史
 
     def __init__(
-        self, knowledge: Optional[Knowledge], chat_history_max_length: Optional[int] = 8
+        self, knowledge: Optional[KnowledgeManager], chat_history_max_length: Optional[int] = 8
     ):
-        self.knowledge: Optional[Knowledge] = knowledge
+        self.knowledge: Optional[KnowledgeManager] = knowledge
         self.chat_history_max_length: int = (
             chat_history_max_length if chat_history_max_length is not None else 8
         )

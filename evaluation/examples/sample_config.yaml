@@ -1,0 +1,68 @@
+# RAG评估系统示例配置文件
+evaluation:
+  # 项目元信息
+  project_name: "RAG系统评估示例"
+  description: "基于RAGAS的RAG系统性能评估示例项目"
+  version: "1.0.0"
+
+  # 数据源配置
+  dataset:
+    # 数据源类型: "file" 或 "knowledge_base"
+    type: "knowledge_base"
+
+    # 文件模式配置
+    questions_path: "evaluation/examples/sample_questions.json"
+    ground_truths_path: "evaluation/examples/sample_ground_truths.json"
+
+    # 知识库模式配置（当type为knowledge_base时）
+    knowledge_base:
+      kb_id: "68d7cdf5c6d4cf9e606c364e"
+      search_k: 10
+      filter_by_file_md5: null # 可选的文件过滤
+
+  # LLM配置（用于答案生成）
+  llm_config:
+    supplier: "siliconflow" # openai, siliconflow, volces, ollama, oneapi
+    model: "deepseek-ai/DeepSeek-V3"
+    api_key: "${SILICONFLOW_API_KEY}" # 从环境变量读取
+    temperature: 0.1
+
+  # 知识检索配置（仅在知识库模式下有效）
+  knowledge_config:
+    use_bm25: false
+    bm25_k: 3
+    # 重排序配置
+    reranker_config:
+      use_reranker: true
+      reranker_type: "remote" # local, remote
+      remote_rerank_config:
+        api_key: "${SILICONFLOW_API_KEY}"
+        model: "BAAI/bge-reranker-v2-m3"
+      rerank_top_n: 3
+
+  # 评估指标配置
+  metrics:
+    - "ContextRelevance" # 上下文相关性
+    # - "ContextPrecision" # 上下文精确度
+    # - "ContextRecall" # 上下文召回率
+    # - "Faithfulness" # 忠实度
+    - "AnswerRelevancy" # 答案相关性
+
+  # 评估器配置
+  evaluator_config:
+    # 用于评估的LLM配置（可以与答案生成不同）
+    judge_llm:
+      supplier: "siliconflow"
+      model: "THUDM/glm-4-9b-chat"
+      api_key: "${SILICONFLOW_API_KEY}"
+      temperature: 0.0
+    judge_embedding:
+      supplier: "siliconflow"
+      model: "BAAI/bge-m3"
+
+  # 输出配置
+  output:
+    results_dir: "evaluation/results"
+    export_format: ["json", "csv", "html"] # 支持的导出格式
+    save_individual_scores: true
+    generate_charts: true

@@ -21,7 +21,10 @@ class VectorDBFactory:
 
     @staticmethod
     def create_adapter(
-        embeddings: Embeddings, db_type: Optional[VectorDBType] = None
+        embeddings: Embeddings,
+        db_type: Optional[VectorDBType] = None,
+        batch_size: int = 64,
+        max_concurrent_batches: int = 5,
     ) -> VectorDBAdapter:
         """
         创建向量数据库适配器
@@ -29,6 +32,8 @@ class VectorDBFactory:
         Args:
             embeddings: 嵌入模型实例
             db_type: 向量数据库类型，如果为None则使用配置文件中的默认类型
+            batch_size: 批次处理大小，默认64
+            max_concurrent_batches: 最大并发批次数量，默认5
 
         Returns:
             VectorDBAdapter: 向量数据库适配器实例
@@ -41,12 +46,22 @@ class VectorDBFactory:
             config = get_vector_db_config()
             db_type = config.db_type
 
-        logger.info(f"创建向量数据库适配器: {db_type}")
+        logger.info(
+            f"创建向量数据库适配器: {db_type}，批次大小: {batch_size}，最大并发批次: {max_concurrent_batches}"
+        )
 
         if db_type == VectorDBType.CHROMA:
-            return ChromaAdapter(embeddings)
+            return ChromaAdapter(
+                embeddings,
+                batch_size=batch_size,
+                max_concurrent_batches=max_concurrent_batches,
+            )
         elif db_type == VectorDBType.MILVUS:
-            return MilvusAdapter(embeddings)
+            return MilvusAdapter(
+                embeddings,
+                batch_size=batch_size,
+                max_concurrent_batches=max_concurrent_batches,
+            )
         else:
             raise ValueError(f"不支持的向量数据库类型: {db_type}")
 
@@ -55,6 +70,8 @@ class VectorDBFactory:
         embeddings: Embeddings,
         collection_name: str,
         db_type: Optional[VectorDBType] = None,
+        batch_size: int = 64,
+        max_concurrent_batches: int = 5,
     ) -> VectorStoreAdapter:
         """
         创建向量存储适配器
@@ -63,11 +80,15 @@ class VectorDBFactory:
             embeddings: 嵌入模型实例
             collection_name: 集合名称
             db_type: 向量数据库类型，如果为None则使用配置文件中的默认类型
+            batch_size: 批次处理大小，默认64
+            max_concurrent_batches: 最大并发批次数量，默认5
 
         Returns:
             VectorStoreAdapter: 向量存储适配器实例
         """
-        adapter = VectorDBFactory.create_adapter(embeddings, db_type)
+        adapter = VectorDBFactory.create_adapter(
+            embeddings, db_type, batch_size, max_concurrent_batches
+        )
         return VectorStoreAdapter(adapter, collection_name)
 
     @staticmethod
@@ -110,16 +131,26 @@ class VectorDBFactory:
 class VectorDBManager:
     """向量数据库管理器，提供统一的管理接口"""
 
-    def __init__(self, embeddings: Embeddings, db_type: Optional[VectorDBType] = None):
+    def __init__(
+        self,
+        embeddings: Embeddings,
+        db_type: Optional[VectorDBType] = None,
+        batch_size: int = 64,
+        max_concurrent_batches: int = 5,
+    ):
         """
         初始化向量数据库管理器
 
         Args:
             embeddings: 嵌入模型实例
             db_type: 向量数据库类型
+            batch_size: 批次处理大小，默认64
+            max_concurrent_batches: 最大并发批次数量，默认5
         """
         self.embeddings = embeddings
         self.db_type = db_type or get_vector_db_config().db_type
+        self.batch_size = batch_size
+        self.max_concurrent_batches = max_concurrent_batches
         self._adapter: Optional[VectorDBAdapter] = None
         self._collections: dict = {}  # 缓存已创建的collection适配器
 
@@ -127,14 +158,20 @@ class VectorDBManager:
         if not VectorDBFactory.validate_dependencies(self.db_type):
             raise ImportError(f"向量数据库 {self.db_type} 的依赖库未安装")
 
-        logger.info(f"VectorDBManager 初始化完成，使用数据库类型: {self.db_type}")
+        logger.info(
+            f"VectorDBManager 初始化完成，使用数据库类型: {self.db_type}，"
+            f"批次大小: {batch_size}，最大并发批次: {max_concurrent_batches}"
+        )
 
     @property
     def adapter(self) -> VectorDBAdapter:
         """获取向量数据库适配器实例（延迟初始化）"""
         if self._adapter is None:
             self._adapter = VectorDBFactory.create_adapter(
-                self.embeddings, self.db_type
+                self.embeddings,
+                self.db_type,
+                self.batch_size,
+                self.max_concurrent_batches,
             )
         return self._adapter
 
