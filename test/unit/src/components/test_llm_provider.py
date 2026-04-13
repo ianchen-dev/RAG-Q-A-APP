@@ -1,9 +1,25 @@
 """Test for llm_provider component refactoring."""
 
+import sys
+from unittest.mock import Mock
+
 import pytest
+
+# Mock the problematic modules before importing
+sys.modules['src.components.kb'] = Mock()
+sys.modules['src.components.kb.document_processor'] = Mock()
+sys.modules['src.components.kb.file_processor'] = Mock()
+sys.modules['src.components.kb.knowledge_base'] = Mock()
+sys.modules['src.components.kb.knowledge_factory'] = Mock()
+sys.modules['src.components.kb.knowledge_repository'] = Mock()
+sys.modules['src.components.kb.knowledge_validator'] = Mock()
+sys.modules['src.components.kb.retriever_builder'] = Mock()
+sys.modules['src.components.kb.vdb_manager'] = Mock()
+
 from src.components.llm_provider import create_llm, get_llms, LLMSupplier
 
 
+@pytest.mark.unit
 class TestLLMProvider:
     """Test cases for LLM provider component."""
 

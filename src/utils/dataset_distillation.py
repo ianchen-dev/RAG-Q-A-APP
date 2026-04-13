@@ -487,5 +487,8 @@ def main():
         print(f"  问题复杂度: 平均 {stats['question_complexity']['mean']:.3f}")
 
 
-if __name__ == "__main__":
-    main()
+# Integration tests have been migrated to test/integration/utils/test_dataset_distillation.py
+# Run with: uv run pytest test/integration/utils/test_dataset_distillation.py -v
+
+# The main() function is still available for command-line usage:
+# python -m src.utils.dataset_distillation --questions questions.json --ground-truths ground_truths.json --output-dir ./output

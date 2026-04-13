@@ -19,6 +19,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.unit
+
+
 class TestSemaphoreBatchProcessor:
     """测试信号量控制的批次处理器"""
 

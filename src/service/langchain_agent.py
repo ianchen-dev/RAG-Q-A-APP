@@ -364,42 +364,5 @@ async def main_graph_execution(
         yield event
 
 
-# 使用示例
-if __name__ == "__main__":
-    pass  # 测试代码已注释，避免在导入时执行
-
-    async def test_agent():
-        """测试 LangChain Agent 的基本功能"""
-        session_id = "test_session_123"
-        user_input = "你好，请帮我搜索一下最新的AI技术发展"
-
-        print("开始测试 LangChain Agent...")
-        print(f"用户输入: {user_input}")
-        print(f"会话ID: {session_id}")
-        print("-" * 50)
-
-        try:
-            async for event in main_graph_execution(user_input, session_id):
-                event_type = event.get("type")
-                event_data = event.get("data")
-
-                if event_type == "tool_call":
-                    print(
-                        f"🔧 工具调用: {event_data.get('name')} | 参数: {event_data.get('args')}"
-                    )
-                elif event_type == "tool_result":
-                    print(
-                        f"📋 工具结果: {event_data.get('name')} | 内容: {event_data.get('content')[:100]}..."
-                    )
-                elif event_type == "chunk":
-                    print(f"💬 输出: {event_data}", end="", flush=True)
-                elif event_type == "stream_end":
-                    print("\n✅ 流式输出结束")
-                elif event_type == "error":
-                    print(f"❌ 错误: {event_data}")
-
-        except Exception as e:
-            print(f"❌ 测试过程中发生错误: {e}")
-
-    # 运行测试
-    # asyncio.run(test_agent())
+# Integration tests have been migrated to test/integration/service/test_langchain_agent.py
+# Run with: uv run pytest test/integration/service/test_langchain_agent.py -v

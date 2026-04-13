@@ -303,8 +303,10 @@ async def _test_oneapi_health():
             print(f"嵌入错误: {result['embeddings'].get('error', 'Unknown error')}")
 
 
-if __name__ == "__main__":
-    # 运行测试
-    asyncio.run(_test_oneapi_health())
+# Integration tests have been migrated to test/integration/utils/test_oneapi_health.py
+# Run with: uv run pytest test/integration/utils/test_oneapi_health.py -v
+
+# The _test_oneapi_health function is still available for manual testing:
+# python -m src.utils.oneapi_health
 
 

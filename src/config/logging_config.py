@@ -225,14 +225,5 @@ def setup_logging_from_settings(
     )
 
 
-if __name__ == "__main__":
-    # 测试日志配置
-    logger = setup_development_logging()
-
-    logger.debug("这是一条DEBUG日志")
-    logger.info("这是一条INFO日志")
-    logger.warning("这是一条WARNING日志")
-    logger.error("这是一条ERROR日志")
-    logger.critical("这是一条CRITICAL日志")
-
-    print("日志配置测试完成，请检查 ./log 目录中的日志文件")
+# Integration tests have been migrated to test/integration/config/test_logging_config.py
+# Run with: uv run pytest test/integration/config/test_logging_config.py -v

@@ -133,15 +133,5 @@ def get_llms(
     )
 
 
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-
-    load_dotenv(dotenv_path="D:/aProject/fastapi/.env.dev")
-    apikey = os.getenv("siliconflow_api_key")
-    llm = create_llm(
-        supplier="siliconflow",
-        model="deepseek-ai/DeepSeek-V3",
-        api_key=apikey,
-        max_length=10086,
-    )
-    print(llm.invoke("你好"))
+# Integration tests have been migrated to test/integration/components/test_llm_provider.py
+# Run with: uv run pytest test/integration/components/test_llm_provider.py -v

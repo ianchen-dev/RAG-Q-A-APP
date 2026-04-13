@@ -29,6 +29,9 @@ from src.config.mcp_client_manager import (
 )
 
 
+@pytest.mark.unit
+
+
 class TestMCPRetryConfig:
     """测试MCPRetryConfig配置类"""
 

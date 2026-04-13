@@ -30,6 +30,9 @@ from src.service.file_queue_manager import FileProcessingTask, FileQueueManager
 from src.service.knowledgeSev import process_uploaded_file_async
 
 
+@pytest.mark.unit
+
+
 class TestFileQueueManager:
     """文件队列管理器测试"""
 

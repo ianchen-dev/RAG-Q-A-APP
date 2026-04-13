@@ -1,1 +1,1 @@
-# Integration tests for utils module
+"""Integration tests for utility modules."""
