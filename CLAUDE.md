@@ -152,7 +152,7 @@ docker-compose down
 
 ```
 src/
-├── config/          # Configuration modules (database, logging, MCP)
+├── config/          # Configuration modules (database, logging, MCP, vector DB)
 ├── models/          # Beanie ODM models (MongoDB schemas)
 ├── router/          # FastAPI route handlers (API endpoints)
 ├── service/         # Business logic services
@@ -163,9 +163,21 @@ src/
 │   ├── chat.py      # Chat-related schemas (LLMConfig, RerankerConfig, KnowledgeConfig, ChatConfig, ChatRequest)
 │   ├── health.py    # Health check schemas (HealthCheckResponse, ConnectionStatsResponse, OneAPIHealthResponse)
 │   └── knowledge.py # Knowledge base schemas (KnowledgeBaseCreate)
+├── components/      # Reusable components (extracted from services via refactoring)
+│   ├── __init__.py       # Component package exports
+│   ├── prompt.py         # Prompt template creation component
+│   ├── chat_history.py   # Chat history manager component
+│   ├── chain_builder.py  # RAG/Normal chain builder component
+│   └── stream_handler.py # Stream processing handler component
 ├── middleware/      # FastAPI middleware (CORS, logging, timing)
-├── adapters/        # Adapter pattern implementations
+├── adapters/        # Adapter pattern implementations (vector databases)
+│   ├── __init__.py          # Adapter package exports
+│   ├── vector_db_adapter.py # Abstract base class for vector DB adapters
+│   ├── chroma_adapter.py    # ChromaDB adapter implementation
+│   └── milvus_adapter.py    # Milvus adapter implementation
 └── factories/       # Factory pattern implementations
+    ├── __init__.py          # Factory package exports
+    └── vector_db_factory.py # Factory for creating vector DB adapters
 ```
 
 ### Environment Variables
