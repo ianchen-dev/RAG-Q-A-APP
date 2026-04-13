@@ -41,19 +41,63 @@
 # 5. 核心聊天协调 → ChatSev (保留)
 ```
 
-### 步骤 2: 创建组件目录结构
+### 步骤 2: 创建目录结构
 
+ **项目分层结构**
 ```
 src/
-├── components/           # 可复用组件
-│   ├── __init__.py      # 组件导出
-│   ├── prompt.py        # Prompt 组件
-│   ├── chat_history.py  # 历史管理组件
+├── components/          # 可复用组件（从服务重构提取）
+│   ├── __init__.py
+│   ├── prompt.py        # Prompt 模板创建组件
+│   ├── chat_history.py  # 聊天历史管理组件
 │   ├── chain_builder.py # 链构建组件
-│   └── stream_handler.py # 流处理组件
-├── service/             # 业务服务
-│   └── ChatSev.py       # 协调者服务
+│   └── stream_handler.py# 流处理组件
+├── adapters/            # 适配器模式实现（向量数据库）
+│   ├── __init__.py
+│   ├── vector_db_adapter.py  # 向量数据库适配器抽象基类
+│   ├── chroma_adapter.py      # ChromaDB 适配器
+│   └── milvus_adapter.py      # Milvus 适配器
+├── factories/            # 工厂模式实现
+│   ├── __init__.py
+│   └── vector_db_factory.py   # 向量数据库工厂
+├── config/              # 配置模块
+│   ├── database_manager.py    # MongoDB + Redis 连接管理器
+│   ├── logging_config.py      # 日志配置
+│   ├── mcp_client_manager.py  # MCP 客户端管理器
+│   └── vector_db_config.py    # 向量数据库配置
+├── models/              # Beanie ODM 模型（MongoDB schemas）
+│   ├── knowledgeBase.py       # 知识库模型
+│   ├── chat_history.py        # 聊天历史模型
+│   ├── user.py                # 用户模型
+│   ├── assistant.py           # 助手模型
+│   └── session.py             # 会话模型
+├── router/              # FastAPI 路由处理器
+│   ├── chatRouter.py          # 聊天接口
+│   ├── knowledgeRouter.py     # 知识库接口
+│   ├── agentRouter.py         # Agent 接口
+│   ├── assistantRouter.py     # 助手接口
+│   ├── sessionRouter.py       # 会话接口
+│   └── healthRouter.py        # 健康检查接口
+├── schema/              # Pydantic 数据验证模型
+│   ├── __init__.py            # Schema 包导出
+│   ├── agent.py               # Agent 相关 schemas
+│   ├── chat.py                # 聊天相关 schemas
+│   ├── health.py              # 健康检查 schemas
+│   └── knowledge.py           # 知识库相关 schemas
+├── utils/               # 工具函数
+│   ├── DocumentChunker.py     # 文档分块
+│   ├── embedding.py           # Embedding 工具
+│   ├── llm_modle.py           # LLM 工具
+│   ├── batch_processor.py     # 批次处理器
+│   ├── remote_rerank.py       # 远程重排序
+│   └── rag_tools.py           # RAG 工具
+├── middleware/          # FastAPI 中间件
+│   ├── reqInfo.py             # 请求信息中间件
+│   └── resTime.py             # 响应时间中间件
+└── service/             # 业务逻辑服务
+    └── [service].py
 ```
+
 
 ### 步骤 3: 定义组件接口
 
