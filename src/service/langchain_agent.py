@@ -10,21 +10,17 @@ from langchain_core.runnables import ConfigurableFieldSpec
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 
-# 使用条件导入来避免 aiohttp 循环导入问题
-try:
-    from langchain_tavily import TavilySearch
-
-    TAVILY_AVAILABLE = True
-except ImportError as e:
-    print(f"警告：无法导入 TavilySearch，将使用备用搜索工具: {e}")
-    TavilySearch = None
-    TAVILY_AVAILABLE = False
+from src.components.llm_provider import get_llms
 
 # 从管理器导入MCP工具获取函数
 from src.config.mcp_client_manager import get_cached_mcp_tools
-from src.service.knowledgeSev import get_knowledge_list_tool
-from src.utils.llm_modle import get_llms
-from src.utils.rag_tools import retriever_document_tool
+
+# Import tools from the new src.tools package
+from src.tools import (
+    create_tavily_tool,
+    get_knowledge_list_tool,
+    retriever_document_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +53,9 @@ class LangChainAgent:
         self.base_tools = [get_knowledge_list_tool, retriever_document_tool]
 
         # 如果 TavilySearch 可用，则添加到工具列表
-        if TAVILY_AVAILABLE and TavilySearch is not None:
-            try:
-                self.tavily_tool = TavilySearch(max_results=2)
-                self.base_tools.append(self.tavily_tool)
-                logger.info("成功添加 TavilySearch 工具")
-            except Exception as e:
-                logger.warning(f"初始化 TavilySearch 失败: {e}")
-        else:
-            logger.info("TavilySearch 不可用，仅使用知识库工具")
+        tavily_tool = create_tavily_tool(max_results=2)
+        if tavily_tool is not None:
+            self.base_tools.append(tavily_tool)
 
         # Tool Calling Agent 提示模板 - 支持原生工具调用
         self.tool_calling_prompt = ChatPromptTemplate.from_messages(

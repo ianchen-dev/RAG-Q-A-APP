@@ -24,12 +24,12 @@ from langchain_core.runnables.history import (
 # components
 from src.components.chain_builder import ChainBuilder
 from src.components.chat_history import ChatHistoryManager
-from src.components.prompt import create_chat_prompts
-from src.components.stream_handler import StreamHandler
 
 # utils
 from src.components.kb import KnowledgeManager
-from src.utils.llm_modle import get_llms
+from src.components.llm_provider import get_llms
+from src.components.prompt import create_chat_prompts
+from src.components.stream_handler import StreamHandler
 
 logger = logging.getLogger(__name__)
 

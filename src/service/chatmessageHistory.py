@@ -18,7 +18,7 @@ from langchain_core.runnables.utils import Output
 from src.components.kb import KnowledgeManager
 
 # utils
-from src.utils.llm_modle import get_llms
+from src.components.llm_provider import get_llms
 
 
 class ChatSev:

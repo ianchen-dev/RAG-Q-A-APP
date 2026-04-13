@@ -32,7 +32,7 @@ except ImportError as e:
     RAGAS_AVAILABLE = False
 
 from config.config_schema import EvaluationConfig
-from src.utils.llm_modle import get_llms
+from src.components.llm_provider import get_llms
 
 
 class RAGASEvaluator:
