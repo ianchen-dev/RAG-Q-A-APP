@@ -9,9 +9,8 @@ import logging
 from typing import List
 
 from fastapi import HTTPException
-from langchain_core.tools import tool
 
-from src.components import (
+from src.components.kb import (
     FileProcessor,
     KnowledgeBaseFactory,
     KnowledgeBaseRepository,
@@ -39,7 +38,7 @@ def _get_components():
     if _factory is None:
         _factory = KnowledgeBaseFactory()
     if _repository is None:
-        _repository = KnowledgeBaseRepository()
+        _repository = _factory.create_repository()
     if _file_processor is None:
         _file_processor = FileProcessor(_validator, _factory, _repository)
     if _vector_db_manager is None:
@@ -126,46 +125,6 @@ async def process_uploaded_file_async(
     return await file_processor.process_file_async(kb_id, file)
 
 
-@tool
-async def get_knowledge_list_tool():
-    """获取所有知识库列表：
-    [
-    {
-        "_id": "67ff248e0e67faaaae7c5303",
-        "title": "RAG知识库",
-        "tag": [
-            "RAG知识库"
-        ],
-        "description": "RAG知识库",
-        "creator": "user1",
-        "filesList": [
-            {
-                "file_md5": "1d49477ffcd597016fbdcf09e95c7e41",
-                "file_path": "C:\\Users\\hbche\\AppData\\Local\\Temp\\tmpv71f5vt8_RAG-QA-PRD.pdf",
-                "file_name": "RAG-QA-PRD.pdf",
-                "upload_time": "2025-04-26T09:23:10.054000"
-            },
-
-            {
-                "file_md5": "b7c89c84a612852fe4c2e1c6c1882530",
-                "file_name": "RAG.md",
-                "upload_time": "2025-05-04T19:00:25.540000"
-            }
-
-        ],
-        "embedding_config": {
-            "embedding_model": "BAAI/bge-m3",
-            "embedding_supplier": "oneapi",
-            "embedding_apikey": "sk-enlDKhEcgGKyeJPx5b8c65Dc9d9b4842A24f5223A4Fb50C3"
-        },
-        "create_at": "2025-04-16T11:31:26.195000"
-    }
-    ]
-    """
-
-    return await get_knowledge_list()
-
-
 async def get_knowledge_list() -> List[KnowledgeBaseModel]:
     """获取所有知识库列表，直接从 MongoDB 查询"""
     _, _, repository, _, _ = _get_components()
@@ -215,6 +174,8 @@ async def delete_file_from_knowledge_base(kb_id: str, file_md5: str) -> dict:
 
     # 4. 删除向量数据库中的相关向量
     filter_dict = {"source_file_md5": file_md5}
-    await vector_db_manager.delete_vectors_by_filter(kb_id, filter_dict, knowledge_base_doc)
+    await vector_db_manager.delete_vectors_by_filter(
+        kb_id, filter_dict, knowledge_base_doc
+    )
 
     return {"message": f"文件 MD5 {file_md5} 已成功从知识库 {kb_id} 删除。"}

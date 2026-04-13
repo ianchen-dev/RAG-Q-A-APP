@@ -28,7 +28,7 @@ from src.components.prompt import create_chat_prompts
 from src.components.stream_handler import StreamHandler
 
 # utils
-from src.utils.Knowledge import Knowledge
+from src.components.kb import KnowledgeManager
 from src.utils.llm_modle import get_llms
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class ChatSev:
 
     def __init__(
         self,
-        knowledge: Optional[Knowledge] = None,
+        knowledge: Optional[KnowledgeManager] = None,
         prompt: str | None = None,
         chat_history_max_length: Optional[int] = 1,
     ):

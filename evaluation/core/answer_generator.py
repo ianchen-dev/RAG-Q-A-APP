@@ -17,7 +17,7 @@ from config.config_schema import EvaluationConfig
 from src.models.knowledgeBase import KnowledgeBase
 from src.service.ChatSev import ChatSev
 from src.utils.embedding import get_embedding
-from src.utils.Knowledge import Knowledge
+from src.components.kb import KnowledgeManager
 
 
 class AnswerGenerator:
@@ -25,7 +25,7 @@ class AnswerGenerator:
 
     def __init__(self, config: EvaluationConfig, max_concurrent: int = 10):
         self.config = config
-        self.knowledge: Optional[Knowledge] = None
+        self.knowledge: Optional[KnowledgeManager] = None
         self.chat_service: Optional[ChatSev] = None
         self.logger = logging.getLogger(__name__)
         self.max_concurrent = max_concurrent
@@ -82,8 +82,8 @@ class AnswerGenerator:
                     "model": self.config.knowledge_config.reranker_config.remote_rerank_config.model,
                 }
 
-            # 初始化Knowledge实例
-            self.knowledge = Knowledge(
+            # 初始化KnowledgeManager实例
+            self.knowledge = KnowledgeManager(
                 _embeddings=embedding,
                 splitter="hybrid",
                 use_bm25=self.config.knowledge_config.use_bm25,

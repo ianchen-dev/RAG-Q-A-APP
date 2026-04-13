@@ -7,14 +7,20 @@ stream handlers, and other utilities.
 
 from src.components.chain_builder import ChainBuilder
 from src.components.chat_history import ChatHistoryManager
-from src.components.file_processor import FileProcessor
-from src.components.kb_factory import KnowledgeBaseFactory
-from src.components.kb_repository import KnowledgeBaseRepository
-from src.components.kb_validator import KnowledgeBaseValidator
+from src.components.kb import (
+    DocumentProcessor,
+    FileProcessor,
+    KnowledgeBaseFactory,
+    KnowledgeBaseRepository,
+    KnowledgeBaseValidator,
+    KnowledgeManager,
+    RetrieverBuilder,
+    VectorDBManager,
+)
+from src.components.llm_provider import create_llm, get_llms
 from src.components.prompt import create_chat_prompts
 from src.components.reranker_compressor import RemoteRerankerCompressor
 from src.components.stream_handler import StreamHandler
-from src.components.vector_db_manager import VectorDBManager
 
 __all__ = [
     "ChainBuilder",
@@ -27,4 +33,9 @@ __all__ = [
     "FileProcessor",
     "VectorDBManager",
     "RemoteRerankerCompressor",
+    "KnowledgeManager",
+    "DocumentProcessor",
+    "RetrieverBuilder",
+    "create_llm",
+    "get_llms",
 ]

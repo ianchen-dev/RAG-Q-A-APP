@@ -9,14 +9,14 @@ from src.models.knowledgeBase import KnowledgeBase
 from src.schema.chat import ChatRequest
 from src.service.ChatSev import ChatSev
 from src.utils.embedding import get_embedding
-from src.utils.Knowledge import Knowledge
+from src.components.kb import KnowledgeManager
 
 ChatRouter = APIRouter()
 
 
 async def get_chat_service(request: ChatRequest) -> ChatSev:
     """Dependency function to create ChatSev instance based on request config."""
-    knowledge_instance: Optional[Knowledge] = None
+    knowledge_instance: Optional[KnowledgeManager] = None
     if request.knowledge_config:
         knowledge_cfg = request.knowledge_config
         try:
@@ -28,7 +28,7 @@ async def get_chat_service(request: ChatRequest) -> ChatSev:
                     kb.embedding_config.embedding_apikey,
                 )
                 reranker_cfg = knowledge_cfg.reranker_config
-                knowledge_instance = Knowledge(
+                knowledge_instance = KnowledgeManager(
                     _embeddings=_embedding,
                     splitter="hybrid",
                     # --- BM25 参数 ---
