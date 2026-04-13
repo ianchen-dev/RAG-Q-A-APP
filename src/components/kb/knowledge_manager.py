@@ -14,7 +14,7 @@ from langchain_core.retrievers import BaseRetriever
 from src.components.kb.document_processor import DocumentProcessor
 from src.components.kb.retriever_builder import RetrieverBuilder
 from src.config.vector_db_config import VectorDBType
-from src.factories.vector_db_factory import VectorDBManager
+from src.components.vector_db_factory import VectorDBManager
 
 logger = logging.getLogger(__name__)
 

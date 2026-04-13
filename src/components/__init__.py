@@ -21,6 +21,7 @@ from src.components.llm_provider import create_llm, get_llms
 from src.components.prompt import create_chat_prompts
 from src.components.reranker_compressor import RemoteRerankerCompressor
 from src.components.stream_handler import StreamHandler
+from src.components.vector_db_factory import VectorDBFactory, get_vector_db_factory
 
 __all__ = [
     "ChainBuilder",
@@ -38,4 +39,6 @@ __all__ = [
     "RetrieverBuilder",
     "create_llm",
     "get_llms",
+    "VectorDBFactory",
+    "get_vector_db_factory",
 ]
