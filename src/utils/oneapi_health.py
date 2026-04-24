@@ -133,7 +133,7 @@ class OneAPIHealthChecker:
         return result
 
     async def check_embeddings_model(
-        self, model_name: str = "text-embedding-ada-002", timeout: int = 15
+        self, model_name: str = "Qwen3-Embedding-0.6B", timeout: int = 15
     ) -> Dict[str, Any]:
         """
         检查嵌入模型的可用性
@@ -308,5 +308,3 @@ async def _test_oneapi_health():
 
 # The _test_oneapi_health function is still available for manual testing:
 # python -m src.utils.oneapi_health
-
-
