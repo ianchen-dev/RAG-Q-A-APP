@@ -104,21 +104,6 @@ semantic = [
 ]
 
 
-#  弃用langgraph
-discard-agent = [
-    "langgraph>=0.3.34",
-    "langgraph-checkpoint-mongodb>=0.2.0",
-
-]
-
-# tortoise数据库迁移 - 开发时使用
-migration = [
-    "tortoise-orm>=0.24.2",
-    "asyncpg>=0.30.0",
-    "aerich>=0.8.2",
-    "tomlkit>=0.13.2",
-]
-
 
 [build-system]
 requires = ["hatchling"]
@@ -126,11 +111,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
-
-[tool.aerich]
-tortoise_orm = "settings.PostgreSQLConfig"
-location = "./migrations"
-src_folder = "./."
 
 [[tool.uv.index]]
 name = "tsinghua"
@@ -154,10 +134,6 @@ known-first-party = ["src"]
 DEP001 = ["src"]
 DEP002 = [
     "python-multipart",
-    "tortoise-orm",
-    "asyncpg",
-    "aerich",
-    "tomlkit",
     "pypdf",
     "markdown",
     "python-docx",
