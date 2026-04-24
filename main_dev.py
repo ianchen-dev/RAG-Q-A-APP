@@ -296,8 +296,6 @@ from src.router.healthRouter import HealthRouter
 from src.router.knowledgeRouter import knowledgeRouter
 from src.router.sessionRouter import SessionRouter
 from src.router.userRouter import UserRouter
-from src.utils.rag_tools import testRouter
-
 app.include_router(router=AuthRouter)
 app.include_router(router=UserRouter, prefix="/user", tags=["user"])
 app.include_router(router=ChatRouter, prefix="/chat", tags=["chat"])
@@ -306,7 +304,6 @@ app.include_router(router=SessionRouter, prefix="/session", tags=["session"])
 app.include_router(router=AssistantRouter, prefix="/assistant", tags=["assistant"])
 app.include_router(router=AgentRouter, prefix="/agent", tags=["agent"])
 app.include_router(router=HealthRouter, prefix="/db", tags=["database", "health"])
-app.include_router(router=testRouter, prefix="/test", tags=["test"])
 
 
 # 当访问路径为/ ，重定向路由到/docs
