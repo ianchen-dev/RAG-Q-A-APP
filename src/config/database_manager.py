@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from beanie import init_beanie
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
 
 # 导入所有文档模型类
 from src.models.assistant import Assistant
@@ -39,8 +40,8 @@ class DatabaseManager:
         """初始化数据库管理器实例"""
         if not hasattr(self, "_initialized") or not self._initialized:
             # MongoDB 相关
-            self._mongodb_client: Optional[AsyncIOMotorClient] = None
-            self._mongodb_db: Optional[AsyncIOMotorDatabase] = None
+            self._mongodb_client: Optional[AsyncMongoClient] = None
+            self._mongodb_db: Optional[AsyncDatabase] = None
             self._mongodb_config: Dict[str, Any] = {}
 
             # 状态标志
@@ -94,7 +95,7 @@ class DatabaseManager:
             logger.info(f"连接 MongoDB: {mongodb_url}, 数据库: {db_name}")
 
             # 创建客户端连接
-            self._mongodb_client = AsyncIOMotorClient(
+            self._mongodb_client = AsyncMongoClient(
                 mongodb_url,
                 maxPoolSize=self._mongodb_config["maxPoolSize"],
                 minPoolSize=self._mongodb_config["minPoolSize"],
@@ -132,7 +133,7 @@ class DatabaseManager:
             logger.error(f"MongoDB 初始化失败: {e}", exc_info=True)
             raise
 
-    async def get_mongodb_client(self) -> AsyncIOMotorClient:
+    async def get_mongodb_client(self) -> AsyncMongoClient:
         """获取 MongoDB 客户端实例"""
         if not self._mongodb_initialized or self._mongodb_client is None:
             await self.initialize()
@@ -142,7 +143,7 @@ class DatabaseManager:
 
         return self._mongodb_client
 
-    async def get_mongodb_database(self) -> AsyncIOMotorDatabase:
+    async def get_mongodb_database(self) -> AsyncDatabase:
         """获取 MongoDB 数据库实例"""
         if not self._mongodb_initialized or self._mongodb_db is None:
             await self.initialize()

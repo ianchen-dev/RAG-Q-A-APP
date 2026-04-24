@@ -1,7 +1,7 @@
 import os
 
 from beanie import init_beanie
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 
 #   导入所有文档模型类
 from src.models.assistant import Assistant
@@ -26,7 +26,7 @@ async def init_db():
 
     # 创建Motor客户端
     # Beanie 会自动处理 URL 中的数据库名，但显式指定也无妨
-    client = AsyncIOMotorClient(mongodb_url)
+    client = AsyncMongoClient(mongodb_url)
 
     print("Initializing Beanie...")
     # 初始化Beanie
