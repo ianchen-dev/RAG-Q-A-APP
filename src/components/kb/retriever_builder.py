@@ -11,7 +11,7 @@
 import logging
 from typing import Any, Dict, Literal, Optional
 
-from langchain.retrievers import (
+from langchain_classic.retrievers import (
     ContextualCompressionRetriever,
     EnsembleRetriever,
 )

@@ -6,8 +6,8 @@
 import logging
 from typing import Iterable, Optional
 
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains.retrieval import create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
+from langchain_classic.chains.retrieval import create_retrieval_chain
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.messages import AIMessageChunk
 from langchain_core.prompts import ChatPromptTemplate

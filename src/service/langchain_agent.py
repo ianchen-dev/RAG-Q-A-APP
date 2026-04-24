@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Any, AsyncGenerator, Dict, List
 
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 
 # BaseMessage 导入已移除，因为 astream_events 不需要直接处理消息类型
 from langchain_core.prompts import ChatPromptTemplate

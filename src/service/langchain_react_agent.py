@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Any, AsyncGenerator, Dict, List
 
-from langchain.agents import AgentExecutor, create_react_agent
+from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import ConfigurableFieldSpec
 from langchain_core.runnables.history import RunnableWithMessageHistory
